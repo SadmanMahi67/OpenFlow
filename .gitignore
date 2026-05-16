@@ -1,0 +1,11 @@
+node_modules/
+dist/
+dist-electron/
+release/
+*.log
+Thumbs.db
+.DS_Store
+resources/models/*.tar.gz
+resources/models/*.zip
+resources/whispercpp/bin/*.zip
+resources/whispercpp/models/*.bin
