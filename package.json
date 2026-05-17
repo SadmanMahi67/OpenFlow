@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Windows desktop voice transcription tool with offline Whisper transcription and Google AI cleanup.",
+  "license": "MIT",
   "main": "dist-electron/electron/main.js",
   "author": "OpenAI Codex",
   "scripts": {

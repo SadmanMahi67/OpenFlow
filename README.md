@@ -2,6 +2,24 @@
 
 Openflow is a Windows desktop dictation app that records while the user holds `Ctrl + Win`, transcribes speech offline with Whisper running through `whisper.cpp`, optionally refines the text with a hosted Google AI model, and pastes the result back into the active window.
 
+## Download
+
+Most users should download Openflow from the GitHub Releases page for this repository instead of running terminal commands.
+
+Download one of these release assets:
+
+- `Openflow Setup 0.1.0.exe` for the installer
+- `Openflow 0.1.0.exe` for the portable app
+- `Openflow-0.1.0-win.zip` for the portable zip
+
+After downloading:
+
+1. Install or extract Openflow
+2. Launch the app
+3. Add your Google AI Studio API key in Settings if you want AI refinement
+4. Focus any text field
+5. Hold `Ctrl + Win`, speak, and release
+
 ## Stack
 
 - Electron + React + TypeScript
@@ -21,7 +39,11 @@ Openflow is a Windows desktop dictation app that records while the user holds `C
 - Vocabulary list for names, brands, and domain terms
 - Auto-paste into the active Windows application via clipboard + `Ctrl+V`
 
-## Development
+## Build From Source
+
+If you want to run or package Openflow yourself, use the steps below.
+
+### Development
 
 1. Install dependencies:
 
@@ -45,7 +67,7 @@ Openflow is a Windows desktop dictation app that records while the user holds `C
 The Electron preload is compiled separately into `dist-electron`, and Vite serves the renderer during development.
 The packaged app expects the `x64` Whisper runtime at `resources/whispercpp/bin/Release/whisper-cli.exe`, the compatibility fallback runtime at `resources/whispercpp/bin/Win32/Release/whisper-cli.exe`, and Whisper model files inside `resources/whispercpp/models/`.
 
-## Packaging
+### Packaging
 
 Build an installer and a portable executable:
 
