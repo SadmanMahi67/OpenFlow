@@ -12,7 +12,7 @@ Download one of these release assets:
 
 After downloading:
 
-1. Install or extract Openflow
+1. Install Openflow
 2. Launch the app
 3. Add your Google AI Studio API key in Settings if you want AI refinement
 4. Focus any text field
