@@ -9,8 +9,6 @@ Most users should download Openflow from the GitHub Releases page for this repos
 Download one of these release assets:
 
 - `Openflow Setup 0.1.0.exe` for the installer
-- `Openflow 0.1.0.exe` for the portable app
-- `Openflow-0.1.0-win.zip` for the portable zip
 
 After downloading:
 
