@@ -14,6 +14,7 @@ declare global {
       getBootstrap: () => Promise<BootstrapPayload>;
       saveSettings: (settings: AppSettings) => Promise<AppSettings>;
       clearHistory: () => Promise<void>;
+      copyText: (text: string) => Promise<void>;
       processTranscript: (payload: ProcessTranscriptRequest) => Promise<ProcessTranscriptResponse>;
       openModelsFolder: () => Promise<void>;
       showMainWindow: () => Promise<void>;

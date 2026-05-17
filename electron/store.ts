@@ -41,6 +41,7 @@ export async function loadSettings(): Promise<AppSettings> {
       typeof loadedSettings.refinementModel === 'string' && loadedSettings.refinementModel.trim().length > 0
         ? loadedSettings.refinementModel.trim()
         : DEFAULT_SETTINGS.refinementModel,
+    launchAtStartup: Boolean(loadedSettings.launchAtStartup),
     vocabulary: Array.isArray(loadedSettings.vocabulary)
       ? loadedSettings.vocabulary.filter((item) => typeof item === 'string' && item.trim().length > 0)
       : []
@@ -52,6 +53,7 @@ export async function saveSettings(settings: AppSettings): Promise<AppSettings> 
     ...DEFAULT_SETTINGS,
     ...settings,
     refinementModel: settings.refinementModel.trim() || DEFAULT_SETTINGS.refinementModel,
+    launchAtStartup: Boolean(settings.launchAtStartup),
     vocabulary: settings.vocabulary
       .map((item) => item.trim())
       .filter(Boolean)

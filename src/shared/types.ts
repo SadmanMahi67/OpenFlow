@@ -27,6 +27,7 @@ export interface AppSettings {
   refinementModel: string;
   defaultStyle: RefinementStyle;
   autoPaste: boolean;
+  launchAtStartup: boolean;
   vocabulary: string[];
 }
 
@@ -86,6 +87,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   refinementModel: GOOGLE_REFINEMENT_MODEL,
   defaultStyle: 'casual',
   autoPaste: true,
+  launchAtStartup: false,
   vocabulary: []
 };
 

@@ -38,6 +38,8 @@ import { appendHistory, clearHistory, loadHistory, loadSettings, saveSettings } 
 
 const APP_TITLE = 'Openflow';
 const DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL;
+const GOOGLE_REFINEMENT_TIMEOUT_MS = 45000;
+const GOOGLE_REFINEMENT_MAX_ATTEMPTS = 2;
 
 let mainWindow: BrowserWindow | null = null;
 let overlayWindow: BrowserWindow | null = null;
@@ -58,6 +60,33 @@ type WhisperRuntimeCandidate = {
 function getRuntimeResourcePath(...pathSegments: string[]): string {
   const baseDirectory = app.isPackaged ? process.resourcesPath : app.getAppPath();
   return path.join(baseDirectory, 'resources', ...pathSegments);
+}
+
+function getAppIconPath(): string {
+  return getRuntimeResourcePath('icons', 'openflow.ico');
+}
+
+function getTrayIconPath(): string {
+  return getRuntimeResourcePath('icons', 'openflow.png');
+}
+
+function getLaunchAtStartupStatus(): boolean {
+  if (process.platform !== 'win32') {
+    return false;
+  }
+
+  return app.getLoginItemSettings().openAtLogin;
+}
+
+function syncLaunchAtStartup(enabled: boolean): void {
+  if (process.platform !== 'win32') {
+    return;
+  }
+
+  app.setLoginItemSettings({
+    openAtLogin: enabled,
+    path: process.execPath
+  });
 }
 
 function getRendererUrl(hash = ''): string {
@@ -165,7 +194,10 @@ async function buildBootstrapPayload(): Promise<BootstrapPayload> {
   const modelInfo = await buildModelInfo();
 
   return {
-    settings,
+    settings: {
+      ...settings,
+      launchAtStartup: getLaunchAtStartupStatus()
+    },
     history,
     overlayState,
     modelInfo,
@@ -174,13 +206,12 @@ async function buildBootstrapPayload(): Promise<BootstrapPayload> {
 }
 
 function createTrayImage(): Electron.NativeImage {
-  const svg = `
-    <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
-      <rect x="8" y="8" width="48" height="48" rx="16" fill="#0f1722"/>
-      <path d="M22 20l10 24 10-24h6L35 50h-6L16 20z" fill="#8ce1ff"/>
-    </svg>
-  `;
-  return nativeImage.createFromDataURL(`data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`);
+  const trayImage = nativeImage.createFromPath(getTrayIconPath());
+  if (!trayImage.isEmpty()) {
+    return trayImage;
+  }
+
+  return nativeImage.createFromPath(getAppIconPath());
 }
 
 function updateTrayMenu(): void {
@@ -218,6 +249,7 @@ async function createMainWindow(): Promise<void> {
     minWidth: 920,
     minHeight: 700,
     backgroundColor: '#071018',
+    icon: getAppIconPath(),
     show: true,
     autoHideMenuBar: true,
     webPreferences: {
@@ -242,7 +274,7 @@ async function createOverlayWindow(): Promise<void> {
   const display = screen.getPrimaryDisplay();
   const { x, y, width, height } = display.workArea;
   const overlayWidth = 280;
-  const overlayHeight = 92;
+  const overlayHeight = 112;
   const rightInset = 22;
   const bottomInset = 22;
 
@@ -313,6 +345,25 @@ function showMainWindow(): void {
 
 function normalizeText(text: string): string {
   return text.replace(/\s+/g, ' ').trim();
+}
+
+function getRefinementFallbackNotice(reason: string): string {
+  return `AI refinement was skipped, so Openflow used the raw transcript. ${reason}`;
+}
+
+async function delay(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryableGoogleStatus(status: number): boolean {
+  return status === 408 || status === 409 || status === 425 || status === 429 || status >= 500;
+}
+
+function isTimeoutLikeError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.name === 'TimeoutError' || error.name === 'AbortError')
+  );
 }
 
 function getStyleInstruction(style: RefinementStyle): string {
@@ -505,98 +556,154 @@ async function refineWithGemini(
   }
 
   const modelId = settings.refinementModel.trim() || GOOGLE_REFINEMENT_MODEL;
-
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${encodeURIComponent(
-      settings.apiKey.trim()
-    )}`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        system_instruction: {
-          parts: [
-            {
-              text:
-                'You are a dictation cleanup assistant. Preserve meaning, do not invent facts, and reply with only the final cleaned text.'
-            }
-          ]
-        },
-        contents: [
-          {
-            role: 'user',
-            parts: [
-              {
-                text: [
-                  `Task: ${getStyleInstruction(style)}`,
-                  '',
-                  'Vocabulary to prefer when plausible:',
-                  settings.vocabulary.length > 0
-                    ? settings.vocabulary.map((item) => `- ${item}`).join('\n')
-                    : '- No custom vocabulary provided',
-                  '',
-                  'Raw transcript:',
-                  rawText
-                ].join('\n')
-              }
-            ]
-          }
-        ],
-        generationConfig: {
-          temperature: 0.2,
-          responseMimeType: 'application/json',
-          responseJsonSchema: {
-            type: 'object',
-            properties: {
-              refinedText: {
-                type: 'string',
-                description:
-                  'The final cleaned text only, with no analysis, reasoning, bullets about the task, or extra metadata.'
-              }
-            },
-            required: ['refinedText']
-          }
+  const spellingHints =
+    settings.vocabulary.length > 0
+      ? settings.vocabulary.map((item) => `- ${item}`).join('\n')
+      : '- No custom vocabulary provided';
+  const requestUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${encodeURIComponent(
+    settings.apiKey.trim()
+  )}`;
+  const requestBody = JSON.stringify({
+    system_instruction: {
+      parts: [
+        {
+          text: [
+            'You are a dictation cleanup assistant.',
+            'Preserve the speaker meaning and do not invent facts.',
+            'Return only the cleaned final text.',
+            'Custom vocabulary entries are spelling hints only.',
+            'Never append, list, explain, mention, or force any vocabulary item unless the raw transcript already implies that word.',
+            'Do not add extra sentences, tags, commentary, notes, or sign-offs.'
+          ].join(' ')
         }
-      })
+      ]
+    },
+    contents: [
+      {
+        role: 'user',
+        parts: [
+          {
+            text: [
+              `Task: ${getStyleInstruction(style)}`,
+              '',
+              'Spelling hints for words that may already be present in the transcript:',
+              spellingHints,
+              '',
+              'Do not add any of the hint words unless they are actually needed to clean up the transcript.',
+              '',
+              'Raw transcript:',
+              rawText
+            ].join('\n')
+          }
+        ]
+      }
+    ],
+    generationConfig: {
+      temperature: 0.1,
+      maxOutputTokens: 220,
+      responseMimeType: 'application/json',
+      responseJsonSchema: {
+        type: 'object',
+        properties: {
+          refinedText: {
+            type: 'string',
+            description:
+              'The final cleaned text only, with no analysis, reasoning, bullets about the task, or extra metadata.'
+          }
+        },
+        required: ['refinedText']
+      }
     }
-  );
+  });
+  let lastFailureReason = 'The Google model request failed.';
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Google AI request failed: ${response.status} ${response.statusText} - ${errorText}`);
-  }
+  for (let attempt = 1; attempt <= GOOGLE_REFINEMENT_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await fetch(requestUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        signal: AbortSignal.timeout(GOOGLE_REFINEMENT_TIMEOUT_MS),
+        body: requestBody
+      });
 
-  const data = (await response.json()) as {
-    candidates?: Array<{
-      content?: {
-        parts?: Array<{ text?: string }>;
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(
+          `Google AI request failed on attempt ${attempt}: ${response.status} ${response.statusText} - ${errorText}`
+        );
+
+        lastFailureReason =
+          response.status === 429
+            ? 'The Google model is rate limited right now.'
+            : 'The Google model did not return a usable response.';
+
+        if (attempt < GOOGLE_REFINEMENT_MAX_ATTEMPTS && isRetryableGoogleStatus(response.status)) {
+          await delay(1200 * attempt);
+          continue;
+        }
+
+        return {
+          refinedText: rawText,
+          notice: getRefinementFallbackNotice(lastFailureReason)
+        };
+      }
+
+      const data = (await response.json()) as {
+        candidates?: Array<{
+          content?: {
+            parts?: Array<{ text?: string }>;
+          };
+        }>;
       };
-    }>;
+
+      const responseText =
+        data.candidates?.[0]?.content?.parts
+          ?.map((part) => part.text ?? '')
+          .join('') ?? '';
+
+      let parsedRefinedText = '';
+
+      try {
+        const parsedResponse = JSON.parse(responseText) as { refinedText?: string };
+        parsedRefinedText = typeof parsedResponse.refinedText === 'string' ? parsedResponse.refinedText : '';
+      } catch {
+        parsedRefinedText = responseText;
+      }
+
+      const refinedText = normalizeText(parsedRefinedText);
+
+      if (!refinedText) {
+        console.error('The Google AI model returned an invalid or empty structured response.');
+        return {
+          refinedText: rawText,
+          notice: getRefinementFallbackNotice('The Google model returned an empty cleanup result.')
+        };
+      }
+
+      return { refinedText };
+    } catch (error) {
+      const isTimeout = isTimeoutLikeError(error);
+      console.error(`Google AI refinement failed on attempt ${attempt}:`, error);
+      lastFailureReason = isTimeout ? 'The Google model timed out.' : 'The Google model request failed.';
+
+      if (attempt < GOOGLE_REFINEMENT_MAX_ATTEMPTS) {
+        await delay(1200 * attempt);
+        continue;
+      }
+
+      return {
+        refinedText: rawText,
+        notice: getRefinementFallbackNotice(lastFailureReason)
+      };
+    }
+  }
+
+  return {
+    refinedText: rawText,
+    notice: getRefinementFallbackNotice(lastFailureReason)
   };
-
-  const responseText =
-    data.candidates?.[0]?.content?.parts
-      ?.map((part) => part.text ?? '')
-      .join('') ?? '';
-
-  let parsedRefinedText = '';
-
-  try {
-    const parsedResponse = JSON.parse(responseText) as { refinedText?: string };
-    parsedRefinedText = typeof parsedResponse.refinedText === 'string' ? parsedResponse.refinedText : '';
-  } catch {
-    parsedRefinedText = '';
-  }
-
-  const refinedText = normalizeText(parsedRefinedText);
-
-  if (!refinedText) {
-    throw new Error('The Google AI model returned an invalid or empty structured response.');
-  }
-
-  return { refinedText };
 }
 
 async function sendPasteShortcut(): Promise<void> {
@@ -624,21 +731,10 @@ async function sendPasteShortcut(): Promise<void> {
 }
 
 async function pasteText(text: string): Promise<void> {
-  const previousClipboard = {
-    text: clipboard.readText(),
-    html: clipboard.readHTML(),
-    rtf: clipboard.readRTF()
-  };
-
   clipboard.writeText(text);
   await new Promise((resolve) => setTimeout(resolve, 80));
   await sendPasteShortcut();
   await new Promise((resolve) => setTimeout(resolve, 250));
-  clipboard.write({
-    text: previousClipboard.text,
-    html: previousClipboard.html,
-    rtf: previousClipboard.rtf
-  });
 }
 
 async function processTranscript(
@@ -683,6 +779,10 @@ async function processTranscript(
     const refinementResult = await refineWithGemini(normalizedRawText, payload.style, settings);
     refinedText = refinementResult.refinedText;
     notice = refinementResult.notice;
+
+    if (refinedText) {
+      clipboard.writeText(refinedText);
+    }
 
     if (settings.autoPaste && refinedText) {
       await pasteText(refinedText);
@@ -793,10 +893,25 @@ async function setupGlobalHotkey(): Promise<void> {
 function registerIpcHandlers(): void {
   ipcMain.handle('app:get-bootstrap', async () => buildBootstrapPayload());
 
-  ipcMain.handle('settings:save', async (_event, settings: AppSettings) => saveSettings(settings));
+  ipcMain.handle('settings:save', async (_event, settings: AppSettings) => {
+    syncLaunchAtStartup(settings.launchAtStartup);
+    const persistedSettings = await saveSettings({
+      ...settings,
+      launchAtStartup: getLaunchAtStartupStatus()
+    });
+
+    return {
+      ...persistedSettings,
+      launchAtStartup: getLaunchAtStartupStatus()
+    };
+  });
 
   ipcMain.handle('history:clear', async () => {
     await clearHistory();
+  });
+
+  ipcMain.handle('clipboard:write-text', async (_event, text: string) => {
+    clipboard.writeText(text);
   });
 
   ipcMain.handle('transcript:process', async (_event, payload: ProcessTranscriptRequest) =>

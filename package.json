@@ -43,6 +43,13 @@
     ],
     "extraResources": [
       {
+        "from": "resources/icons",
+        "to": "resources/icons",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
         "from": "resources/bin",
         "to": "resources/bin",
         "filter": [
@@ -58,6 +65,7 @@
       }
     ],
     "win": {
+      "icon": "resources/icons/openflow.ico",
       "target": [
         {
           "target": "nsis",
@@ -80,6 +88,8 @@
       ]
     },
     "nsis": {
+      "installerIcon": "resources/icons/openflow.ico",
+      "uninstallerIcon": "resources/icons/openflow.ico",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,

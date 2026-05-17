@@ -13,6 +13,7 @@ const api = {
   saveSettings: (settings: AppSettings) =>
     ipcRenderer.invoke('settings:save', settings) as Promise<AppSettings>,
   clearHistory: () => ipcRenderer.invoke('history:clear') as Promise<void>,
+  copyText: (text: string) => ipcRenderer.invoke('clipboard:write-text', text) as Promise<void>,
   processTranscript: (payload: ProcessTranscriptRequest) =>
     ipcRenderer.invoke('transcript:process', payload) as Promise<ProcessTranscriptResponse>,
   openModelsFolder: () => ipcRenderer.invoke('app:open-models-folder') as Promise<void>,
