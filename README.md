@@ -2,6 +2,16 @@
 
 Openflow is a Windows desktop dictation app that records while the user holds `Ctrl + Win`, transcribes speech offline with Whisper running through `whisper.cpp`, optionally refines the text with a hosted Groq model, and pastes the result back into the active window.
 
+## System Requirements
+
+Openflow is built for Windows only.
+
+- Windows 10 or Windows 11
+- 64-bit `x64` PC
+- A microphone for recording
+- At least 1 GB of free disk space for the app, Whisper runtime, and bundled model
+- Internet access for optional Groq refinement
+
 ## Download
 
 Most users should download Openflow from the GitHub Releases page for this repository instead of running terminal commands.
