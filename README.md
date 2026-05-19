@@ -12,6 +12,8 @@ Openflow is built for Windows only.
 - At least 1 GB of free disk space for the app, Whisper runtime, and bundled model
 - Internet access for optional Groq refinement
 
+[![Watch the demo](https://img.youtube.com/vi/STxLHoK06Vg/maxresdefault.jpg)](https://www.youtube.com/watch?v=STxLHoK06Vg)
+
 ## Download
 
 Most users should download Openflow from the GitHub Releases page for this repository instead of running terminal commands.
