@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   DEFAULT_OVERLAY_STATE,
   DEFAULT_SETTINGS,
-  GOOGLE_REFINEMENT_MODEL,
+  GROQ_REFINEMENT_MODEL,
   OFFLINE_MODEL_OPTIONS,
   STYLE_OPTIONS,
   type AppSettings,
@@ -579,7 +579,7 @@ export function App(): JSX.Element {
                   <span className="page-title-accent">flow</span>
                 </h1>
                 <p className="page-subtitle">
-                  Speak with Ctrl + Win. Whisper transcribes offline, Google AI cleans it up, and Openflow pastes the final result back where you were typing.
+                  Speak with Ctrl + Win. Whisper transcribes offline, hosted AI cleans it up, and Openflow pastes the final result back where you were typing.
                 </p>
               </div>
 
@@ -765,23 +765,23 @@ export function App(): JSX.Element {
             <section className="page page-settings">
               <div className="page-intro settings-intro">
                 <h2 className="page-heading">Settings</h2>
-                <p className="page-subcopy">Configure the Google cleanup model, startup behavior, vocabulary, and the bundled Whisper runtime.</p>
+                <p className="page-subcopy">Configure the Groq cleanup model, API key, startup behavior, vocabulary, and the bundled Whisper runtime.</p>
               </div>
 
               <div className="settings-stack">
                 <article className="settings-card">
-                  <p className="settings-title">Google AI Studio API key</p>
+                  <p className="settings-title">Groq API key</p>
                   <p className="settings-description">Stored locally and used only for the hosted cleanup request.</p>
                   <div className="inline-input-row">
                     <input
                       className="text-input"
                       type={showApiKey ? 'text' : 'password'}
-                      placeholder="AIza..."
-                      value={settings.apiKey}
+                      placeholder="gsk_..."
+                      value={settings.groqApiKey}
                       onChange={(event) =>
                         void handleSettingsChange({
                           ...settings,
-                          apiKey: event.target.value
+                          groqApiKey: event.target.value
                         })
                       }
                     />
@@ -793,11 +793,11 @@ export function App(): JSX.Element {
 
                 <article className="settings-card">
                   <p className="settings-title">Hosted model ID</p>
-                  <p className="settings-description">The hosted Google model Openflow uses for transcript refinement.</p>
+                  <p className="settings-description">The Groq model Openflow uses for transcript refinement.</p>
                   <input
                     className="text-input"
                     type="text"
-                    placeholder={GOOGLE_REFINEMENT_MODEL}
+                    placeholder={GROQ_REFINEMENT_MODEL}
                     value={settings.refinementModel}
                     onChange={(event) =>
                       void handleSettingsChange({

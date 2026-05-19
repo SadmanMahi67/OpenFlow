@@ -20,7 +20,7 @@ import type { Readable } from 'node:stream';
 import {
   DEFAULT_OVERLAY_STATE,
   DEFAULT_WHISPER_MODEL,
-  GOOGLE_REFINEMENT_MODEL,
+  GROQ_REFINEMENT_MODEL,
   OFFLINE_MODEL_OPTIONS,
   WHISPER_BINARY_ARCHIVE_NAME,
   WHISPER_BINARY_DOWNLOAD_URL,
@@ -38,8 +38,8 @@ import { appendHistory, clearHistory, loadHistory, loadSettings, saveSettings } 
 
 const APP_TITLE = 'Openflow';
 const DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL;
-const GOOGLE_REFINEMENT_TIMEOUT_MS = 45000;
-const GOOGLE_REFINEMENT_MAX_ATTEMPTS = 2;
+const GROQ_REFINEMENT_TIMEOUT_MS = 20000;
+const GROQ_REFINEMENT_MAX_ATTEMPTS = 2;
 
 let mainWindow: BrowserWindow | null = null;
 let overlayWindow: BrowserWindow | null = null;
@@ -355,7 +355,7 @@ async function delay(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function isRetryableGoogleStatus(status: number): boolean {
+function isRetryableHttpStatus(status: number): boolean {
   return status === 408 || status === 409 || status === 425 || status === 429 || status >= 500;
 }
 
@@ -539,7 +539,7 @@ async function transcribeWithWhisper(audioBuffer: ArrayBuffer): Promise<string> 
   }
 }
 
-async function refineWithGemini(
+async function refineWithGroq(
   rawText: string,
   style: RefinementStyle,
   settings: AppSettings
@@ -548,99 +548,82 @@ async function refineWithGemini(
     return { refinedText: rawText };
   }
 
-  if (!settings.apiKey.trim()) {
+  if (!settings.groqApiKey.trim()) {
     return {
       refinedText: rawText,
-      notice: 'AI refinement skipped because no Google AI Studio API key is configured.'
+      notice: 'AI refinement skipped because no Groq API key is configured.'
     };
   }
 
-  const modelId = settings.refinementModel.trim() || GOOGLE_REFINEMENT_MODEL;
+  const modelId = settings.refinementModel.trim() || GROQ_REFINEMENT_MODEL;
   const spellingHints =
     settings.vocabulary.length > 0
       ? settings.vocabulary.map((item) => `- ${item}`).join('\n')
       : '- No custom vocabulary provided';
-  const requestUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${encodeURIComponent(
-    settings.apiKey.trim()
-  )}`;
+  const requestUrl = 'https://api.groq.com/openai/v1/chat/completions';
   const requestBody = JSON.stringify({
-    system_instruction: {
-      parts: [
-        {
-          text: [
-            'You are a dictation cleanup assistant.',
-            'Preserve the speaker meaning and do not invent facts.',
-            'Return only the cleaned final text.',
-            'Custom vocabulary entries are spelling hints only.',
-            'Never append, list, explain, mention, or force any vocabulary item unless the raw transcript already implies that word.',
-            'Do not add extra sentences, tags, commentary, notes, or sign-offs.'
-          ].join(' ')
-        }
-      ]
-    },
-    contents: [
+    model: modelId,
+    temperature: 0,
+    max_completion_tokens: 220,
+    messages: [
+      {
+        role: 'system',
+        content: [
+          'You are a dictation cleanup assistant.',
+          'Preserve the speaker meaning and do not invent facts.',
+          'Return only the cleaned final text.',
+          'Custom vocabulary entries are canonical spellings for names, brands, product terms, and technical words.',
+          'If a word or phrase in the raw transcript is a likely ASR misspelling, phonetic match, or near-match for a provided vocabulary entry, replace it with that exact vocabulary spelling.',
+          'Preserve the exact spelling, casing, spacing, and punctuation of matched vocabulary entries.',
+          'Prefer provided vocabulary over plausible alternatives when the sound or context is close.',
+          'Never append, list, explain, mention, or force any vocabulary item unless the raw transcript already implies that word or phrase.',
+          'Do not add extra sentences, tags, commentary, notes, or sign-offs.'
+        ].join(' ')
+      },
       {
         role: 'user',
-        parts: [
-          {
-            text: [
-              `Task: ${getStyleInstruction(style)}`,
-              '',
-              'Spelling hints for words that may already be present in the transcript:',
-              spellingHints,
-              '',
-              'Do not add any of the hint words unless they are actually needed to clean up the transcript.',
-              '',
-              'Raw transcript:',
-              rawText
-            ].join('\n')
-          }
-        ]
+        content: [
+          `Task: ${getStyleInstruction(style)}`,
+          '',
+          'Vocabulary entries to preserve exactly when the raw transcript appears to refer to them:',
+          spellingHints,
+          '',
+          'Use the vocabulary list to correct likely ASR mistakes and phonetic near-matches.',
+          'Do not add any vocabulary term unless it is actually implied by the raw transcript.',
+          '',
+          'Raw transcript:',
+          rawText
+        ].join('\n')
       }
-    ],
-    generationConfig: {
-      temperature: 0.1,
-      maxOutputTokens: 220,
-      responseMimeType: 'application/json',
-      responseJsonSchema: {
-        type: 'object',
-        properties: {
-          refinedText: {
-            type: 'string',
-            description:
-              'The final cleaned text only, with no analysis, reasoning, bullets about the task, or extra metadata.'
-          }
-        },
-        required: ['refinedText']
-      }
-    }
+    ]
   });
-  let lastFailureReason = 'The Google model request failed.';
+  let lastFailureReason = 'The Groq model request failed.';
 
-  for (let attempt = 1; attempt <= GOOGLE_REFINEMENT_MAX_ATTEMPTS; attempt += 1) {
+  for (let attempt = 1; attempt <= GROQ_REFINEMENT_MAX_ATTEMPTS; attempt += 1) {
     try {
       const response = await fetch(requestUrl, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${settings.groqApiKey.trim()}`
         },
-        signal: AbortSignal.timeout(GOOGLE_REFINEMENT_TIMEOUT_MS),
+        signal: AbortSignal.timeout(GROQ_REFINEMENT_TIMEOUT_MS),
         body: requestBody
       });
 
       if (!response.ok) {
         const errorText = await response.text();
         console.error(
-          `Google AI request failed on attempt ${attempt}: ${response.status} ${response.statusText} - ${errorText}`
+          `Groq refinement failed on attempt ${attempt}: ${response.status} ${response.statusText} - ${errorText}`
         );
 
         lastFailureReason =
           response.status === 429
-            ? 'The Google model is rate limited right now.'
-            : 'The Google model did not return a usable response.';
+            ? 'The Groq model is rate limited right now.'
+            : 'The Groq model did not return a usable response.';
 
-        if (attempt < GOOGLE_REFINEMENT_MAX_ATTEMPTS && isRetryableGoogleStatus(response.status)) {
-          await delay(1200 * attempt);
+        if (attempt < GROQ_REFINEMENT_MAX_ATTEMPTS && isRetryableHttpStatus(response.status)) {
+          await delay(600 * attempt);
           continue;
         }
 
@@ -651,45 +634,31 @@ async function refineWithGemini(
       }
 
       const data = (await response.json()) as {
-        candidates?: Array<{
-          content?: {
-            parts?: Array<{ text?: string }>;
+        choices?: Array<{
+          message?: {
+            content?: string;
           };
         }>;
       };
 
-      const responseText =
-        data.candidates?.[0]?.content?.parts
-          ?.map((part) => part.text ?? '')
-          .join('') ?? '';
-
-      let parsedRefinedText = '';
-
-      try {
-        const parsedResponse = JSON.parse(responseText) as { refinedText?: string };
-        parsedRefinedText = typeof parsedResponse.refinedText === 'string' ? parsedResponse.refinedText : '';
-      } catch {
-        parsedRefinedText = responseText;
-      }
-
-      const refinedText = normalizeText(parsedRefinedText);
+      const refinedText = normalizeText(data.choices?.[0]?.message?.content ?? '');
 
       if (!refinedText) {
-        console.error('The Google AI model returned an invalid or empty structured response.');
+        console.error('The Groq model returned an invalid or empty cleanup response.');
         return {
           refinedText: rawText,
-          notice: getRefinementFallbackNotice('The Google model returned an empty cleanup result.')
+          notice: getRefinementFallbackNotice('The Groq model returned an empty cleanup result.')
         };
       }
 
       return { refinedText };
     } catch (error) {
       const isTimeout = isTimeoutLikeError(error);
-      console.error(`Google AI refinement failed on attempt ${attempt}:`, error);
-      lastFailureReason = isTimeout ? 'The Google model timed out.' : 'The Google model request failed.';
+      console.error(`Groq refinement failed on attempt ${attempt}:`, error);
+      lastFailureReason = isTimeout ? 'The Groq model timed out.' : 'The Groq model request failed.';
 
-      if (attempt < GOOGLE_REFINEMENT_MAX_ATTEMPTS) {
-        await delay(1200 * attempt);
+      if (attempt < GROQ_REFINEMENT_MAX_ATTEMPTS) {
+        await delay(600 * attempt);
         continue;
       }
 
@@ -776,7 +745,7 @@ async function processTranscript(
   let errorMessage: string | undefined;
 
   try {
-    const refinementResult = await refineWithGemini(normalizedRawText, payload.style, settings);
+    const refinementResult = await refineWithGroq(normalizedRawText, payload.style, settings);
     refinedText = refinementResult.refinedText;
     notice = refinementResult.notice;
 

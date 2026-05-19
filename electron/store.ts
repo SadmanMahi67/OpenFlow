@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import {
   DEFAULT_SETTINGS,
+  GROQ_REFINEMENT_MODEL,
   type AppSettings,
   type HistoryEntry
 } from '../src/shared/types';
@@ -34,13 +35,16 @@ async function writeJsonFile(fileName: string, value: unknown): Promise<void> {
 
 export async function loadSettings(): Promise<AppSettings> {
   const loadedSettings = await readJsonFile<AppSettings>(SETTINGS_FILE_NAME, DEFAULT_SETTINGS);
+  const legacyModel =
+    typeof loadedSettings.refinementModel === 'string' ? loadedSettings.refinementModel.trim() : '';
+  const refinementModel =
+    legacyModel.length > 0 && !legacyModel.startsWith('gemini-') ? legacyModel : GROQ_REFINEMENT_MODEL;
+
   return {
     ...DEFAULT_SETTINGS,
     ...loadedSettings,
-    refinementModel:
-      typeof loadedSettings.refinementModel === 'string' && loadedSettings.refinementModel.trim().length > 0
-        ? loadedSettings.refinementModel.trim()
-        : DEFAULT_SETTINGS.refinementModel,
+    groqApiKey: typeof loadedSettings.groqApiKey === 'string' ? loadedSettings.groqApiKey.trim() : '',
+    refinementModel,
     launchAtStartup: Boolean(loadedSettings.launchAtStartup),
     vocabulary: Array.isArray(loadedSettings.vocabulary)
       ? loadedSettings.vocabulary.filter((item) => typeof item === 'string' && item.trim().length > 0)
@@ -52,7 +56,8 @@ export async function saveSettings(settings: AppSettings): Promise<AppSettings> 
   const normalizedSettings: AppSettings = {
     ...DEFAULT_SETTINGS,
     ...settings,
-    refinementModel: settings.refinementModel.trim() || DEFAULT_SETTINGS.refinementModel,
+    groqApiKey: settings.groqApiKey.trim(),
+    refinementModel: settings.refinementModel.trim() || GROQ_REFINEMENT_MODEL,
     launchAtStartup: Boolean(settings.launchAtStartup),
     vocabulary: settings.vocabulary
       .map((item) => item.trim())

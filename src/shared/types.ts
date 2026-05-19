@@ -1,4 +1,4 @@
-export const GOOGLE_REFINEMENT_MODEL = 'gemini-3.1-flash-lite';
+export const GROQ_REFINEMENT_MODEL = 'llama-3.1-8b-instant';
 export const DEFAULT_WHISPER_MODEL = 'small.en';
 export const WHISPER_BINARY_ARCHIVE_NAME = 'whisper-bin-x64.zip + whisper-bin-Win32.zip';
 export const WHISPER_BINARY_DOWNLOAD_URL =
@@ -23,7 +23,7 @@ export type OverlayStatus =
   | 'error';
 
 export interface AppSettings {
-  apiKey: string;
+  groqApiKey: string;
   refinementModel: string;
   defaultStyle: RefinementStyle;
   autoPaste: boolean;
@@ -83,8 +83,8 @@ export interface ProcessTranscriptResponse {
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  apiKey: '',
-  refinementModel: GOOGLE_REFINEMENT_MODEL,
+  groqApiKey: '',
+  refinementModel: GROQ_REFINEMENT_MODEL,
   defaultStyle: 'casual',
   autoPaste: true,
   launchAtStartup: false,
