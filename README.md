@@ -9,12 +9,10 @@ Most users should download Openflow from the GitHub Releases page for this repos
 Download one of these release assets:
 
 - `Openflow Setup 0.1.0.exe` for the installer
-- `Openflow 0.1.0.exe` for the portable app
-- `Openflow-0.1.0-win.zip` for the portable zip
 
 After downloading:
 
-1. Install or extract Openflow
+1. Install Openflow
 2. Launch the app
 3. Add your Groq API key in Settings if you want AI refinement
 4. Focus any text field
