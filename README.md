@@ -2,6 +2,8 @@
 
 Openflow is a Windows desktop dictation app that records while the user holds `Ctrl + Win`, transcribes speech offline with Whisper running through `whisper.cpp`, optionally refines the text with a hosted Groq model, and pastes the result back into the active window.
 
+[![Watch the demo](https://img.youtube.com/vi/STxLHoK06Vg/maxresdefault.jpg)](https://www.youtube.com/watch?v=STxLHoK06Vg)
+
 ## Download
 
 Most users should download Openflow from the GitHub Releases page for this repository instead of running terminal commands.
