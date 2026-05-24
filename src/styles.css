@@ -646,14 +646,28 @@ svg {
 }
 
 .note-banner,
+.history-note,
 .history-error,
 .overlay-inline-message {
   padding: 10px 12px;
   border-radius: var(--radius-small);
+  font-size: 12px;
+}
+
+.note-banner,
+.history-error,
+.overlay-inline-message {
+  border-radius: var(--radius-small);
   background: var(--danger-soft);
   border: 1px solid var(--danger-border);
   color: #c47080;
-  font-size: 12px;
+}
+
+.history-note {
+  margin: 0 16px 12px;
+  background: rgba(240, 232, 216, 0.05);
+  border: 1px solid rgba(240, 232, 216, 0.1);
+  color: var(--cream-muted);
 }
 
 .page-history .section-header {
@@ -663,7 +677,8 @@ svg {
 .secondary-button,
 .history-copy-button,
 .icon-button,
-.copy-status-button {
+.copy-status-button,
+.danger-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -673,7 +688,8 @@ svg {
 }
 
 .secondary-button,
-.history-copy-button {
+.history-copy-button,
+.danger-button {
   border: 1px solid var(--border);
   background: transparent;
   color: var(--text-muted);
@@ -682,7 +698,8 @@ svg {
 .secondary-button:hover,
 .history-copy-button:hover,
 .icon-button:hover,
-.copy-status-button:hover {
+.copy-status-button:hover,
+.danger-button:hover {
   transform: translateY(-1px);
 }
 
@@ -693,9 +710,31 @@ svg {
   border-color: rgba(240, 232, 216, 0.18);
 }
 
+.secondary-button.is-active {
+  background: rgba(240, 232, 216, 0.08);
+  color: var(--cream);
+  border-color: rgba(240, 232, 216, 0.2);
+}
+
+.danger-button:hover {
+  background: rgba(139, 37, 53, 0.12);
+  color: #d78897;
+  border-color: rgba(139, 37, 53, 0.32);
+}
+
 .secondary-button {
   padding: 8px 12px;
   font-size: 12px;
+}
+
+.danger-button {
+  padding: 8px 12px;
+  font-size: 12px;
+  margin-top: 14px;
+}
+
+.prompt-remove-button {
+  margin-top: 0;
 }
 
 .icon-secondary-button {
@@ -845,7 +884,8 @@ svg {
 }
 
 .history-content-grid,
-.runtime-grid {
+.runtime-grid,
+.cleanup-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -876,12 +916,76 @@ svg {
   margin: 0 16px 16px;
 }
 
+.prompt-error-banner {
+  margin-top: 12px;
+}
+
 .settings-intro {
   margin-bottom: 22px;
 }
 
 .settings-card {
   padding: 20px 22px;
+}
+
+.prompt-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.prompt-editor-grid {
+  display: grid;
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.prompt-field {
+  display: grid;
+  gap: 8px;
+}
+
+.prompt-field-wide {
+  min-width: 0;
+}
+
+.prompt-textarea {
+  min-height: 140px;
+  width: 100%;
+  resize: vertical;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-small);
+  background: var(--surface);
+  color: var(--text);
+  outline: none;
+  line-height: 1.6;
+  transition: border-color 220ms ease, box-shadow 220ms ease, background 220ms ease;
+}
+
+.prompt-textarea:focus {
+  border-color: rgba(240, 232, 216, 0.32);
+  box-shadow: 0 0 0 3px rgba(240, 232, 216, 0.07);
+}
+
+.local-model-picker {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.backend-grid {
+  margin-top: 16px;
+}
+
+.local-model-summary {
+  margin: 0;
+}
+
+.local-model-size,
+.runtime-warning {
+  color: var(--cream-muted);
 }
 
 .inline-input-row {
@@ -946,6 +1050,11 @@ svg {
   margin-top: 14px;
 }
 
+.cleanup-grid {
+  gap: 12px;
+  margin-top: 14px;
+}
+
 .runtime-card {
   padding: 14px;
   border-radius: var(--radius-small);
@@ -984,6 +1093,60 @@ svg {
 
 .runtime-path {
   word-break: break-word;
+}
+
+.runtime-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.download-status-card {
+  margin-top: 14px;
+  padding: 14px;
+  border-radius: var(--radius-small);
+  border: 1px solid rgba(240, 232, 216, 0.12);
+  background: rgba(31, 34, 31, 0.76);
+}
+
+.download-status-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.download-status-percent {
+  font-size: 11px;
+  color: var(--cream-muted);
+}
+
+.download-progress-track {
+  width: 100%;
+  height: 8px;
+  margin-top: 12px;
+  border-radius: 999px;
+  background: rgba(240, 232, 216, 0.06);
+  overflow: hidden;
+}
+
+.download-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(122, 144, 116, 0.7), rgba(240, 232, 216, 0.85));
+  transition: width 220ms ease;
+}
+
+.runtime-actions .secondary-button:disabled,
+.secondary-button:disabled,
+.danger-button:disabled,
+.icon-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
 }
 
 .settings-footnote {
@@ -1220,7 +1383,8 @@ svg {
   .transcript-grid,
   .home-preferences-grid,
   .history-content-grid,
-  .runtime-grid {
+  .runtime-grid,
+  .cleanup-grid {
     grid-template-columns: 1fr;
   }
 

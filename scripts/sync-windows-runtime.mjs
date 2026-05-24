@@ -16,6 +16,12 @@ const runtimeGroups = [
     sourceDirectory: path.join(windowsRoot, 'SysWOW64'),
     targetDirectory: path.join(workspaceRoot, 'resources', 'whispercpp', 'bin', 'Win32', 'Release'),
     fileNames: ['msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll', 'vcomp140.dll', 'concrt140.dll']
+  },
+  {
+    label: 'Vulkan x64',
+    sourceDirectory: path.join(windowsRoot, 'System32'),
+    targetDirectory: path.join(workspaceRoot, 'resources', 'whispercpp-vulkan', 'bin', 'Release'),
+    fileNames: ['msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll', 'vcomp140.dll', 'concrt140.dll']
   }
 ];
 

@@ -2,7 +2,7 @@
   "name": "openflow",
   "version": "0.1.0",
   "private": true,
-  "description": "Windows desktop voice transcription tool with offline Whisper transcription and Google AI cleanup.",
+  "description": "Windows desktop voice transcription tool with offline Whisper transcription and optional AI cleanup.",
   "license": "MIT",
   "main": "dist-electron/electron/main.js",
   "author": "OpenAI Codex",
@@ -14,7 +14,8 @@
     "build:electron": "node scripts/sync-windows-runtime.mjs && tsc -p tsconfig.electron.json",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.electron.json --noEmit",
     "dist": "npm run build && electron-builder",
-    "model:download": "node scripts/download-model.mjs"
+    "model:download": "node scripts/download-model.mjs",
+    "runtime:vulkan": "node scripts/build-whisper-vulkan-runtime.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",
@@ -60,6 +61,13 @@
       {
         "from": "resources/whispercpp",
         "to": "resources/whispercpp",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "resources/whispercpp-vulkan",
+        "to": "resources/whispercpp-vulkan",
         "filter": [
           "**/*"
         ]

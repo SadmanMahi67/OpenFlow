@@ -11,7 +11,7 @@ Openflow is built for Windows only.
 - Windows 10 or Windows 11
 - 64-bit `x64` PC
 - A microphone for recording
-- At least 1 GB of free disk space for the app, Whisper runtime, and bundled model
+- Enough free disk space for the app plus whichever Whisper model you download inside Openflow
 - Internet access for optional Groq refinement
 
 ## Download
@@ -33,7 +33,7 @@ After downloading:
 ## Stack
 
 - Electron + React + TypeScript
-- `whisper.cpp` Windows runtimes for offline CPU transcription, bundling both `x64` and `Win32` builds for compatibility
+- `whisper.cpp` Windows runtimes for offline transcription, bundling CPU fallbacks and an optional Vulkan build
 - Groq hosted model over HTTPS for text cleanup, defaulting to `llama-3.1-8b-instant`
 - Local JSON persistence in the Electron `userData` directory
 
@@ -42,9 +42,10 @@ After downloading:
 - Global hold-to-talk hotkey: `Ctrl + Win`
 - Floating click-through overlay for Recording / Processing / Done
 - Offline CPU transcription with Whisper models through `whisper.cpp`
+- Downloadable Whisper model management inside the app
+- Optional Vulkan acceleration path when a Vulkan runtime is bundled in the build
 - Refinement styles: Casual, Formal, Summarised, Bullet Points, Email Ready, None
 - Configurable hosted Groq model ID in Settings
-- Bundled Whisper `small` model for offline CPU transcription
 - Local transcription history storing raw and refined text
 - Vocabulary list for names, brands, and domain terms
 - Auto-paste into the active Windows application via clipboard + `Ctrl+V`
@@ -61,13 +62,19 @@ If you want to run or package Openflow yourself, use the steps below.
    npm install
    ```
 
-2. Download the Whisper runtimes and default `small.en` model:
+2. Download the Whisper CPU runtimes:
 
    ```powershell
    npm run model:download
    ```
 
-3. Start the app:
+3. Optional: build the bundled Vulkan runtime:
+
+   ```powershell
+   npm run runtime:vulkan
+   ```
+
+4. Start the app:
 
    ```powershell
    npm run build:electron
@@ -75,7 +82,7 @@ If you want to run or package Openflow yourself, use the steps below.
    ```
 
 The Electron preload is compiled separately into `dist-electron`, and Vite serves the renderer during development.
-The packaged app expects the `x64` Whisper runtime at `resources/whispercpp/bin/Release/whisper-cli.exe`, the compatibility fallback runtime at `resources/whispercpp/bin/Win32/Release/whisper-cli.exe`, and Whisper model files inside `resources/whispercpp/models/`.
+The packaged app expects the `x64` Whisper runtime at `resources/whispercpp/bin/Release/whisper-cli.exe`, the compatibility fallback runtime at `resources/whispercpp/bin/Win32/Release/whisper-cli.exe`, the optional Vulkan runtime at `resources/whispercpp-vulkan/bin/Release/whisper-cli.exe`, and any downloaded Whisper model files inside the app's user-data `whisper-models/` directory.
 
 ### Packaging
 
@@ -89,8 +96,9 @@ Artifacts are emitted into `release/`.
 
 ## Notes
 
-- Whisper model files are intentionally not committed to the repo because they are large.
-- Openflow prefers the bundled `x64` Whisper runtime first and automatically falls back to the bundled `Win32` runtime if the first binary is incompatible with the current machine.
+- Whisper model files are not bundled with the app package. Users download the models they want from inside Openflow.
+- Openflow uses the selected acceleration mode. CPU falls back from the bundled `x64` runtime to the bundled `Win32` runtime if needed, and Auto can prefer a bundled Vulkan runtime when one is present.
+- The Vulkan runtime can be built from source with `npm run runtime:vulkan`. Openflow bundles it from `resources/whispercpp-vulkan/` when present.
 - Settings and history are stored locally inside Electron's `app.getPath("userData")` directory.
 - AI refinement requires a Groq API key. If the key is missing, Openflow falls back to raw transcription text.
 - The default hosted model is `llama-3.1-8b-instant`, but you can change the model ID in Settings.

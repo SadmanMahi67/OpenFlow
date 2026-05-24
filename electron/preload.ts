@@ -17,6 +17,20 @@ const api = {
   processTranscript: (payload: ProcessTranscriptRequest) =>
     ipcRenderer.invoke('transcript:process', payload) as Promise<ProcessTranscriptResponse>,
   openModelsFolder: () => ipcRenderer.invoke('app:open-models-folder') as Promise<void>,
+  downloadOfflineModel: (modelId: string) =>
+    ipcRenderer.invoke('offline-model:download', modelId) as Promise<BootstrapPayload>,
+  removeOfflineModel: (modelId: string) =>
+    ipcRenderer.invoke('offline-model:remove', modelId) as Promise<BootstrapPayload>,
+  openGroqApiKeys: () => ipcRenderer.invoke('app:open-groq-api-keys') as Promise<void>,
+  installLocalAiRuntime: () => ipcRenderer.invoke('local-ai:install-runtime') as Promise<BootstrapPayload>,
+  installLocalAiModel: () => ipcRenderer.invoke('local-ai:install-model') as Promise<BootstrapPayload>,
+  startLocalAi: () => ipcRenderer.invoke('local-ai:start') as Promise<BootstrapPayload>,
+  stopLocalAi: () => ipcRenderer.invoke('local-ai:stop') as Promise<BootstrapPayload>,
+  refreshLocalAi: () => ipcRenderer.invoke('local-ai:refresh') as Promise<BootstrapPayload>,
+  removeLocalAiRuntime: () => ipcRenderer.invoke('cleanup:remove-local-ai-runtime') as Promise<BootstrapPayload>,
+  removeLocalAiModels: () => ipcRenderer.invoke('cleanup:remove-local-ai-models') as Promise<BootstrapPayload>,
+  resetSettingsAndHistory: () => ipcRenderer.invoke('cleanup:reset-settings-history') as Promise<BootstrapPayload>,
+  fullReset: () => ipcRenderer.invoke('cleanup:full-reset') as Promise<BootstrapPayload>,
   showMainWindow: () => ipcRenderer.invoke('app:show-main-window') as Promise<void>,
   reportCaptureError: (message: string) =>
     ipcRenderer.invoke('capture:error', message) as Promise<void>,

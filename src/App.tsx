@@ -1,15 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
 
 import {
+  BUILT_IN_PROMPT_FILTERS,
   DEFAULT_OVERLAY_STATE,
   DEFAULT_SETTINGS,
   GROQ_REFINEMENT_MODEL,
   OFFLINE_MODEL_OPTIONS,
-  STYLE_OPTIONS,
+  REFINEMENT_MODE_OPTIONS,
   type AppSettings,
   type BootstrapPayload,
   type HistoryEntry,
+  type LocalAiInfo,
   type OverlayState,
+  type PromptFilter,
+  type RefinementMode,
   type RefinementStyle
 } from './shared/types';
 
@@ -22,7 +26,20 @@ type AppStatus =
   | 'done'
   | 'error';
 
-type AppTab = 'home' | 'history' | 'settings';
+type AppTab = 'home' | 'history' | 'transcription' | 'ai' | 'prompts' | 'info' | 'settings';
+type PromptDraft = {
+  label: string;
+  instruction: string;
+};
+
+const ACCELERATION_MODE_OPTIONS: Array<{
+  value: AppSettings['accelerationMode'];
+  label: string;
+}> = [
+  { value: 'auto', label: 'Auto' },
+  { value: 'cpu', label: 'CPU' },
+  { value: 'vulkan', label: 'GPU (Vulkan)' }
+];
 
 type TranscriberLike = {
   warmup: () => Promise<void>;
@@ -141,7 +158,17 @@ function getHistoryStyleClass(style: RefinementStyle): string {
       return 'pill-raw';
     case 'casual':
       return 'pill-casual';
+    default:
+      return 'pill-casual';
   }
+}
+
+function getFilterLabel(filters: PromptFilter[], filterId: RefinementStyle): string {
+  return (
+    filters.find((filter) => filter.id === filterId)?.label ??
+    BUILT_IN_PROMPT_FILTERS.find((filter) => filter.id === filterId)?.label ??
+    filterId
+  );
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
@@ -223,11 +250,54 @@ function HistoryIcon(): JSX.Element {
   );
 }
 
+function TranscriptionIcon(): JSX.Element {
+  return (
+    <svg className="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+      <path d="M12 19v3" />
+      <path d="M8 22h8" />
+    </svg>
+  );
+}
+
+function AiIcon(): JSX.Element {
+  return (
+    <svg className="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3l1.7 3.5L17 8.2l-3.3 1.6L12 13.3l-1.7-3.5L7 8.2l3.3-1.7L12 3Z" />
+      <path d="M5 14v2a2 2 0 0 0 2 2h2" />
+      <path d="M19 14v2a2 2 0 0 1-2 2h-2" />
+      <path d="M9 18v3" />
+      <path d="M15 18v3" />
+    </svg>
+  );
+}
+
 function SettingsIcon(): JSX.Element {
   return (
     <svg className="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="12" r="3" />
       <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 0 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 0 1-4 0v-.2a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 0 1 0-4h.2a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 0 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3h.1a1.7 1.7 0 0 0 1-1.5V3a2 2 0 0 1 4 0v.2a1.7 1.7 0 0 0 1 1.5h.1a1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8v.1a1.7 1.7 0 0 0 1.5 1H21a2 2 0 0 1 0 4h-.2a1.7 1.7 0 0 0-1.4 1Z" />
+    </svg>
+  );
+}
+
+function PromptIcon(): JSX.Element {
+  return (
+    <svg className="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3l1.9 4.9L19 10l-5.1 2.1L12 17l-1.9-4.9L5 10l5.1-2.1L12 3Z" />
+      <path d="M19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8L19 16Z" />
+      <path d="M5 15l.5 1.5L7 17l-1.5.5L5 19l-.5-1.5L3 17l1.5-.5L5 15Z" />
+    </svg>
+  );
+}
+
+function InfoIcon(): JSX.Element {
+  return (
+    <svg className="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 16v-4" />
+      <path d="M12 8h.01" />
     </svg>
   );
 }
@@ -284,8 +354,17 @@ export function App(): JSX.Element {
   const [savingSettings, setSavingSettings] = useState<boolean>(false);
   const [showApiKey, setShowApiKey] = useState<boolean>(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [localAiBusyAction, setLocalAiBusyAction] = useState<string | null>(null);
+  const [promptDrafts, setPromptDrafts] = useState<Record<string, PromptDraft>>({});
+  const [promptErrors, setPromptErrors] = useState<Record<string, string>>({});
   const recordingRef = useRef<boolean>(false);
   const copyResetTimerRef = useRef<number | null>(null);
+
+  const applyBootstrap = (payload: BootstrapPayload): void => {
+    setBootData(payload);
+    setSettings(payload.settings);
+    setHistory(payload.history);
+  };
 
   useEffect(() => {
     if (overlayMode) {
@@ -293,17 +372,15 @@ export function App(): JSX.Element {
     }
 
     void window.voskFlow.getBootstrap().then((payload) => {
-      setBootData(payload);
-      setSettings(payload.settings);
-      setHistory(payload.history);
+      applyBootstrap(payload);
       setStatus('idle');
       if (!payload.modelInfo.binaryExists) {
         setNote(
-          `Offline runtime missing. Download ${payload.modelInfo.binaryArchiveName} before the first transcription.`
+          `Offline runtime missing. Reinstall or rebuild Openflow before the first transcription.`
         );
       } else if (!payload.modelInfo.exists) {
         setNote(
-          `Offline model missing. Download ${payload.modelInfo.fileName} before the first transcription.`
+          `Offline model missing. Download ${payload.modelInfo.label} in Transcription before the first transcription.`
         );
       }
     });
@@ -340,7 +417,7 @@ export function App(): JSX.Element {
 
       if (!bootData.modelInfo.exists) {
         setStatus('error');
-        setNote('The Whisper small model is missing. Open the models folder and place the model file there.');
+        setNote(`The selected Whisper model is missing: ${bootData.modelInfo.label}. Download it in Transcription and try again.`);
         await window.voskFlow.reportCaptureError('Model missing');
         return;
       }
@@ -430,7 +507,58 @@ export function App(): JSX.Element {
   }
 
   const statusCopy = getStatusCopy(status);
-  const selectedOfflineModel = OFFLINE_MODEL_OPTIONS[0];
+  const selectedOfflineModel =
+    bootData?.modelInfo.availableModels.find((option) => option.value === settings.offlineModel) ??
+    OFFLINE_MODEL_OPTIONS.find((option) => option.value === settings.offlineModel) ??
+    OFFLINE_MODEL_OPTIONS[0];
+  const promptFilters = settings.promptFilters.length > 0 ? settings.promptFilters : BUILT_IN_PROMPT_FILTERS;
+  const activeTabLabel =
+    activeTab === 'home'
+      ? 'voice dictation'
+      : activeTab === 'history'
+        ? 'history'
+        : activeTab === 'transcription'
+          ? 'transcription'
+          : activeTab === 'ai'
+            ? 'ai refinement'
+            : activeTab === 'prompts'
+              ? 'prompts'
+              : activeTab === 'info'
+                ? 'info'
+              : 'settings';
+  const localAiInfo: LocalAiInfo | null = bootData?.localAiInfo ?? null;
+  const offlineModelDownloadState = bootData?.modelInfo.downloadState;
+  const localAiStatusText = !localAiInfo
+    ? 'Loading local AI status...'
+    : localAiInfo.downloadState
+      ? localAiInfo.downloadState.phase === 'extracting'
+        ? `Extracting ${localAiInfo.downloadState.label}`
+        : `Downloading ${localAiInfo.downloadState.label}`
+    : localAiInfo.healthy
+      ? localAiInfo.runningModelFileName &&
+        localAiInfo.runningModelFileName !== localAiInfo.selectedModelValue
+        ? 'Running another model'
+        : 'Running and ready'
+      : localAiInfo.serverRunning
+        ? 'Starting up'
+        : localAiInfo.runtimeInstalled && localAiInfo.modelInstalled
+          ? 'Installed but stopped'
+          : 'Not installed';
+
+  useEffect(() => {
+    setPromptDrafts(
+      Object.fromEntries(
+        promptFilters.map((filter) => [
+          filter.id,
+          {
+            label: filter.label,
+            instruction: filter.instruction
+          }
+        ])
+      )
+    );
+    setPromptErrors({});
+  }, [promptFilters]);
 
   const handleSettingsChange = async (nextSettings: AppSettings): Promise<void> => {
     setSettings(nextSettings);
@@ -439,9 +567,72 @@ export function App(): JSX.Element {
       const persistedSettings = await window.voskFlow.saveSettings(nextSettings);
       setSettings(persistedSettings);
       const payload = await window.voskFlow.getBootstrap();
-      setBootData(payload);
+      applyBootstrap(payload);
     } finally {
       setSavingSettings(false);
+    }
+  };
+
+  const runLocalAiAction = async (
+    actionKey: string,
+    runner: () => Promise<BootstrapPayload>,
+    successNote?: string
+  ): Promise<void> => {
+    setLocalAiBusyAction(actionKey);
+    let refreshTimer: number | null = null;
+
+    const refreshBootstrap = async (): Promise<void> => {
+      try {
+        const payload = await window.voskFlow.refreshLocalAi();
+        applyBootstrap(payload);
+      } catch {
+        // Keep the current UI state if polling fails briefly during a long-running action.
+      }
+    };
+
+    try {
+      refreshTimer = window.setInterval(() => {
+        void refreshBootstrap();
+      }, 700);
+
+      const payload = await runner();
+      applyBootstrap(payload);
+      if (successNote) {
+        setNote(successNote);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Local AI action failed.';
+      setNote(message);
+    } finally {
+      if (refreshTimer !== null) {
+        window.clearInterval(refreshTimer);
+      }
+      void refreshBootstrap();
+      setLocalAiBusyAction(null);
+    }
+  };
+
+  const runCleanupAction = async (
+    actionKey: string,
+    runner: () => Promise<BootstrapPayload>,
+    successNote: string,
+    options?: { clearPreviews?: boolean }
+  ): Promise<void> => {
+    setLocalAiBusyAction(actionKey);
+
+    try {
+      const payload = await runner();
+      applyBootstrap(payload);
+      if (options?.clearPreviews) {
+        setLatestRawText('');
+        setLatestRefinedText('');
+      }
+      setNote(successNote);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Cleanup action failed.';
+      setNote(message);
+    } finally {
+      setLocalAiBusyAction(null);
     }
   };
 
@@ -481,6 +672,139 @@ export function App(): JSX.Element {
 
   const removeVocabularyEntry = async (entryToRemove: string): Promise<void> => {
     await persistVocabularyEntries(settings.vocabulary.filter((entry) => entry !== entryToRemove));
+  };
+
+  const updatePromptDraft = (
+    filterId: string,
+    changes: Partial<PromptDraft>
+  ): void => {
+    setPromptDrafts((currentDrafts) => ({
+      ...currentDrafts,
+      [filterId]: {
+        label: currentDrafts[filterId]?.label ?? promptFilters.find((filter) => filter.id === filterId)?.label ?? '',
+        instruction:
+          currentDrafts[filterId]?.instruction ??
+          promptFilters.find((filter) => filter.id === filterId)?.instruction ??
+          '',
+        ...changes
+      }
+    }));
+    setPromptErrors((currentErrors) => {
+      if (!currentErrors[filterId]) {
+        return currentErrors;
+      }
+
+      const nextErrors = { ...currentErrors };
+      delete nextErrors[filterId];
+      return nextErrors;
+    });
+  };
+
+  const savePromptFilter = async (filterId: string): Promise<void> => {
+    const filter = promptFilters.find((item) => item.id === filterId);
+    if (!filter) {
+      return;
+    }
+
+    const draft = promptDrafts[filterId] ?? {
+      label: filter.label,
+      instruction: filter.instruction
+    };
+    const nextLabel = draft.label.trim();
+    const nextInstruction = draft.instruction.trim();
+
+    if (!nextLabel) {
+      setPromptErrors((currentErrors) => ({
+        ...currentErrors,
+        [filterId]: 'Filter name is required.'
+      }));
+      return;
+    }
+
+    if (!nextInstruction) {
+      setPromptErrors((currentErrors) => ({
+        ...currentErrors,
+        [filterId]: 'Prompt instruction is required.'
+      }));
+      return;
+    }
+
+    await handleSettingsChange({
+      ...settings,
+      promptFilters: promptFilters.map((item) =>
+        item.id === filterId
+          ? { ...item, label: nextLabel, instruction: nextInstruction }
+          : item
+      )
+    });
+
+    setPromptDrafts((currentDrafts) => ({
+      ...currentDrafts,
+      [filterId]: {
+        label: nextLabel,
+        instruction: nextInstruction
+      }
+    }));
+    setPromptErrors((currentErrors) => {
+      if (!currentErrors[filterId]) {
+        return currentErrors;
+      }
+
+      const nextErrors = { ...currentErrors };
+      delete nextErrors[filterId];
+      return nextErrors;
+    });
+  };
+
+  const hasPromptDraftChanges = (filter: PromptFilter): boolean => {
+    const draft = promptDrafts[filter.id];
+    if (!draft) {
+      return false;
+    }
+
+    return draft.label !== filter.label || draft.instruction !== filter.instruction;
+  };
+
+  const addPromptFilter = async (): Promise<void> => {
+    const nextFilter: PromptFilter = {
+      id: `custom-${crypto.randomUUID()}`,
+      label: 'New Filter',
+      instruction: 'Rewrite the transcript according to this custom instruction.',
+      builtIn: false
+    };
+
+    await handleSettingsChange({
+      ...settings,
+      promptFilters: [...promptFilters, nextFilter],
+      defaultStyle: nextFilter.id
+    });
+    setPromptDrafts((currentDrafts) => ({
+      ...currentDrafts,
+      [nextFilter.id]: {
+        label: nextFilter.label,
+        instruction: nextFilter.instruction
+      }
+    }));
+    setActiveTab('prompts');
+  };
+
+  const removePromptFilter = async (filterId: string): Promise<void> => {
+    const nextFilters = promptFilters.filter((filter) => filter.id !== filterId);
+    await handleSettingsChange({
+      ...settings,
+      promptFilters: nextFilters,
+      defaultStyle: settings.defaultStyle === filterId ? 'casual' : settings.defaultStyle
+    });
+    setPromptDrafts((currentDrafts) => {
+      const nextDrafts = { ...currentDrafts };
+      delete nextDrafts[filterId];
+      return nextDrafts;
+    });
+    setPromptErrors((currentErrors) => {
+      const nextErrors = { ...currentErrors };
+      delete nextErrors[filterId];
+      return nextErrors;
+    });
   };
 
   const clearHistoryEntries = async (): Promise<void> => {
@@ -547,6 +871,38 @@ export function App(): JSX.Element {
             <span>History</span>
           </button>
           <button
+            className={`sidebar-nav${activeTab === 'transcription' ? ' is-active' : ''}`}
+            type="button"
+            onClick={() => setActiveTab('transcription')}
+          >
+            <TranscriptionIcon />
+            <span>Transcription</span>
+          </button>
+          <button
+            className={`sidebar-nav${activeTab === 'ai' ? ' is-active' : ''}`}
+            type="button"
+            onClick={() => setActiveTab('ai')}
+          >
+            <AiIcon />
+            <span>AI</span>
+          </button>
+          <button
+            className={`sidebar-nav${activeTab === 'prompts' ? ' is-active' : ''}`}
+            type="button"
+            onClick={() => setActiveTab('prompts')}
+          >
+            <PromptIcon />
+            <span>Prompts</span>
+          </button>
+          <button
+            className={`sidebar-nav${activeTab === 'info' ? ' is-active' : ''}`}
+            type="button"
+            onClick={() => setActiveTab('info')}
+          >
+            <InfoIcon />
+            <span>Info</span>
+          </button>
+          <button
             className={`sidebar-nav${activeTab === 'settings' ? ' is-active' : ''}`}
             type="button"
             onClick={() => setActiveTab('settings')}
@@ -565,9 +921,7 @@ export function App(): JSX.Element {
         <header className="workspace-topbar">
           <span className="topbar-product">Openflow</span>
           <span className="topbar-separator">/</span>
-          <span className="topbar-location">
-            {activeTab === 'home' ? 'voice dictation' : activeTab}
-          </span>
+          <span className="topbar-location">{activeTabLabel}</span>
         </header>
 
         <div className="workspace-scroll">
@@ -579,7 +933,7 @@ export function App(): JSX.Element {
                   <span className="page-title-accent">flow</span>
                 </h1>
                 <p className="page-subtitle">
-                  Speak with Ctrl + Win. Whisper transcribes offline, hosted AI cleans it up, and Openflow pastes the final result back where you were typing.
+                  Speak with Ctrl + Win. Whisper transcribes offline, Groq or local AI cleans it up, and Openflow pastes the final result back where you were typing.
                 </p>
               </div>
 
@@ -653,13 +1007,13 @@ export function App(): JSX.Element {
                     onChange={(event) =>
                       void handleSettingsChange({
                         ...settings,
-                        defaultStyle: event.target.value as RefinementStyle
+                        defaultStyle: event.target.value
                       })
                     }
                   >
-                    {STYLE_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
+                    {promptFilters.map((filter) => (
+                      <option key={filter.id} value={filter.id}>
+                        {filter.label}
                       </option>
                     ))}
                   </select>
@@ -714,7 +1068,7 @@ export function App(): JSX.Element {
                       <div className="history-meta-bar">
                         <span className="history-time">{formatDate(entry.createdAt)}</span>
                         <span className={`history-style-pill ${getHistoryStyleClass(entry.style)}`}>
-                          {STYLE_OPTIONS.find((option) => option.value === entry.style)?.label ?? entry.style}
+                          {getFilterLabel(promptFilters, entry.style)}
                         </span>
                         <span className={`history-paste-state${entry.pasted ? ' is-pasted' : ''}`}>
                           {entry.pasted ? 'Pasted' : 'Not pasted'}
@@ -753,6 +1107,7 @@ export function App(): JSX.Element {
                         </div>
                       </div>
 
+                      {entry.notice ? <div className="history-note">{entry.notice}</div> : null}
                       {entry.error ? <div className="history-error">{entry.error}</div> : null}
                     </article>
                   ))}
@@ -761,17 +1116,230 @@ export function App(): JSX.Element {
             </section>
           ) : null}
 
-          {activeTab === 'settings' ? (
-            <section className="page page-settings">
+          {activeTab === 'transcription' ? (
+            <section className="page page-transcription">
               <div className="page-intro settings-intro">
-                <h2 className="page-heading">Settings</h2>
-                <p className="page-subcopy">Configure the Groq cleanup model, API key, startup behavior, vocabulary, and the bundled Whisper runtime.</p>
+                <h2 className="page-heading">Transcription</h2>
+                <p className="page-subcopy">Manage Whisper models, choose the active transcription model, and control CPU or Vulkan acceleration.</p>
               </div>
 
               <div className="settings-stack">
                 <article className="settings-card">
-                  <p className="settings-title">Groq API key</p>
-                  <p className="settings-description">Stored locally and used only for the hosted cleanup request.</p>
+                  <div className="settings-card-head">
+                    <div>
+                      <p className="settings-title">Offline model and runtime</p>
+                      <p className="settings-description">Choose which Whisper model Openflow should use, download models on demand, and control whether transcription prefers CPU or the bundled Vulkan runtime.</p>
+                    </div>
+                    <button className="secondary-button icon-secondary-button" type="button" onClick={() => void window.voskFlow.openModelsFolder()}>
+                      <OpenFolderIcon />
+                      Open folder
+                    </button>
+                  </div>
+
+                  <div className="local-model-picker">
+                    <div>
+                      <p className="settings-title">Transcription model</p>
+                      <p className="settings-description">Openflow will use the selected Whisper model for every capture.</p>
+                    </div>
+                    <select
+                      className="styled-select"
+                      value={settings.offlineModel}
+                      onChange={(event) =>
+                        void handleSettingsChange({
+                          ...settings,
+                          offlineModel: event.target.value as AppSettings['offlineModel']
+                        })
+                      }
+                    >
+                      {(bootData?.modelInfo.availableModels ?? []).map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                          {option.recommended ? ' (Recommended)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="settings-description local-model-summary">
+                      {selectedOfflineModel.diskSize} · {selectedOfflineModel.accuracy} accuracy · {selectedOfflineModel.speed} speed · {selectedOfflineModel.memoryUsage} RAM
+                    </p>
+                  </div>
+
+                  <div className="local-model-picker">
+                    <div>
+                      <p className="settings-title">Acceleration</p>
+                      <p className="settings-description">Auto prefers the bundled Vulkan runtime when present. CPU always uses the bundled CPU runtimes.</p>
+                    </div>
+                    <select
+                      className="styled-select"
+                      value={settings.accelerationMode}
+                      onChange={(event) =>
+                        void handleSettingsChange({
+                          ...settings,
+                          accelerationMode: event.target.value as AppSettings['accelerationMode']
+                        })
+                      }
+                    >
+                      {ACCELERATION_MODE_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="settings-description local-model-summary">
+                      {bootData?.modelInfo.activeBackendLabel ?? 'Unavailable'}
+                      {bootData?.modelInfo.fallbackReason ? ` · ${bootData.modelInfo.fallbackReason}` : ''}
+                    </p>
+                  </div>
+
+                  {offlineModelDownloadState ? (
+                    <div className="download-status-card">
+                      <div className="download-status-head">
+                        <span className="runtime-label">Transfer</span>
+                        <span className="download-status-percent">
+                          {offlineModelDownloadState.percent !== undefined
+                            ? `${offlineModelDownloadState.percent}%`
+                            : offlineModelDownloadState.phase === 'extracting'
+                              ? 'Extracting'
+                              : 'Downloading'}
+                        </span>
+                      </div>
+                      <p className="runtime-title">{offlineModelDownloadState.label}</p>
+                      <p className="runtime-copy">{offlineModelDownloadState.detail}</p>
+                      <div className="download-progress-track" aria-hidden="true">
+                        <span
+                          className="download-progress-fill"
+                          style={{
+                            width:
+                              offlineModelDownloadState.percent !== undefined
+                                ? `${offlineModelDownloadState.percent}%`
+                                : offlineModelDownloadState.phase === 'extracting'
+                                  ? '100%'
+                                  : '18%'
+                          }}
+                        />
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <div className="cleanup-grid">
+                    {(bootData?.modelInfo.availableModels ?? []).map((option) => (
+                      <div
+                        key={option.value}
+                        className={`runtime-card${option.installed ? ' is-ready' : ' is-missing'}`}
+                      >
+                        <span className="runtime-label">Model</span>
+                        <p className="runtime-title">{option.label}</p>
+                        <p className="runtime-copy">
+                          {option.diskSize} · {option.accuracy} accuracy · {option.speed} speed
+                        </p>
+                        <p className="runtime-meta runtime-path">{option.absolutePath}</p>
+                        <button
+                          className="secondary-button"
+                          type="button"
+                          onClick={() =>
+                            void runLocalAiAction(
+                              `download-offline-model-${option.value}`,
+                              () => window.voskFlow.downloadOfflineModel(option.value),
+                              `${option.label} downloaded.`
+                            )
+                          }
+                          disabled={localAiBusyAction !== null || option.installed}
+                        >
+                          {localAiBusyAction === `download-offline-model-${option.value}`
+                            ? 'Downloading…'
+                            : option.installed
+                              ? 'Installed'
+                              : 'Download'}
+                        </button>
+                        {option.removable ? (
+                          <button
+                            className="danger-button prompt-remove-button"
+                            type="button"
+                            onClick={() =>
+                              void runLocalAiAction(
+                                `remove-offline-model-${option.value}`,
+                                () => window.voskFlow.removeOfflineModel(option.value),
+                                `${option.label} removed.`
+                              )
+                            }
+                            disabled={localAiBusyAction !== null}
+                          >
+                            {localAiBusyAction === `remove-offline-model-${option.value}`
+                              ? 'Removing…'
+                              : 'Remove download'}
+                          </button>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                </article>
+              </div>
+            </section>
+          ) : null}
+
+          {activeTab === 'ai' ? (
+            <section className="page page-ai">
+              <div className="page-intro settings-intro">
+                <h2 className="page-heading">AI Refinement</h2>
+                <p className="page-subcopy">Choose how Openflow refines transcripts, manage Groq credentials, and install or remove the local AI runtime and models.</p>
+              </div>
+
+              <div className="settings-stack">
+                <article className="settings-card">
+                  <p className="settings-title">Refinement mode</p>
+                  <p className="settings-description">Choose whether Openflow should refine with Groq or the managed local AI runtime.</p>
+                  <select
+                    className="styled-select"
+                    value={settings.refinementMode}
+                    onChange={(event) =>
+                      void handleSettingsChange({
+                        ...settings,
+                        refinementMode: event.target.value as RefinementMode
+                      })
+                    }
+                  >
+                    {REFINEMENT_MODE_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </article>
+
+                <article className="settings-card">
+                  <p className="settings-title">Default refinement style</p>
+                  <p className="settings-description">Used whenever a capture is refined without a manual override.</p>
+                  <select
+                    className="styled-select"
+                    value={settings.defaultStyle}
+                    onChange={(event) =>
+                      void handleSettingsChange({
+                        ...settings,
+                        defaultStyle: event.target.value
+                      })
+                    }
+                  >
+                    {promptFilters.map((filter) => (
+                      <option key={filter.id} value={filter.id}>
+                        {filter.label}
+                      </option>
+                    ))}
+                  </select>
+                </article>
+
+                <article className="settings-card">
+                  <div className="settings-card-head">
+                    <div>
+                      <p className="settings-title">Groq API key</p>
+                      <p className="settings-description">Stored locally and used only for Groq cleanup requests and automatic fallback from local AI.</p>
+                    </div>
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      onClick={() => void window.voskFlow.openGroqApiKeys()}
+                    >
+                      Get Groq API key
+                    </button>
+                  </div>
                   <div className="inline-input-row">
                     <input
                       className="text-input"
@@ -793,7 +1361,7 @@ export function App(): JSX.Element {
 
                 <article className="settings-card">
                   <p className="settings-title">Hosted model ID</p>
-                  <p className="settings-description">The Groq model Openflow uses for transcript refinement.</p>
+                  <p className="settings-description">The Groq model Openflow uses when Groq refinement is selected or used as a fallback.</p>
                   <input
                     className="text-input"
                     type="text"
@@ -808,6 +1376,412 @@ export function App(): JSX.Element {
                   />
                 </article>
 
+                <article className="settings-card">
+                  <div className="settings-card-head">
+                    <div>
+                      <p className="settings-title">Local AI refinement</p>
+                      <p className="settings-description">Download and manage the local llama.cpp runtime and cleanup model directly inside Openflow.</p>
+                    </div>
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      onClick={() =>
+                        void runLocalAiAction(
+                          'refresh-local-ai',
+                          () => window.voskFlow.refreshLocalAi()
+                        )
+                      }
+                      disabled={localAiBusyAction !== null}
+                    >
+                      Refresh status
+                    </button>
+                  </div>
+
+                  <div className="local-model-picker">
+                    <div>
+                      <p className="settings-title">Local cleanup model</p>
+                      <p className="settings-description">
+                        Pick the model Openflow should install and run for local refinement.
+                      </p>
+                    </div>
+                    <select
+                      className="styled-select"
+                      value={settings.localRefinementModel}
+                      onChange={(event) =>
+                        void handleSettingsChange({
+                          ...settings,
+                          localRefinementModel: event.target.value
+                        })
+                      }
+                      disabled={localAiBusyAction !== null}
+                    >
+                      {(localAiInfo?.availableModels ?? []).map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                          {option.recommended ? ' (Recommended)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="settings-description local-model-summary">
+                      {(localAiInfo?.modelSummary ?? 'Choose a local cleanup model.')} {' '}
+                      <span className="local-model-size">{localAiInfo?.modelSize ?? ''}</span>
+                    </p>
+                  </div>
+
+                  <div className="runtime-grid">
+                    <div className={`runtime-card${localAiInfo?.runtimeInstalled ? ' is-ready' : ' is-missing'}`}>
+                      <span className="runtime-label">Runtime</span>
+                      <p className="runtime-title">{localAiInfo?.runtimeInstalled ? 'llama.cpp installed' : 'Runtime not installed'}</p>
+                      <p className="runtime-copy">{localAiInfo?.runtimeInstalled ? 'Managed locally by Openflow' : 'Download once to enable local cleanup'}</p>
+                      <p className="runtime-meta runtime-path">{localAiInfo?.runtimePath ?? 'Loading runtime path...'}</p>
+                    </div>
+                    <div className={`runtime-card${localAiInfo?.modelInstalled ? ' is-ready' : ' is-missing'}`}>
+                      <span className="runtime-label">Model</span>
+                      <p className="runtime-title">{localAiInfo?.modelLabel ?? 'Loading model info...'}</p>
+                      <p className="runtime-copy">{localAiInfo?.modelInstalled ? 'Installed and available for cleanup' : 'Needs download before local refinement can run'}</p>
+                      <p className="runtime-meta runtime-path">{localAiInfo?.modelPath ?? 'Loading model path...'}</p>
+                    </div>
+                  </div>
+
+                  <div className="runtime-grid">
+                    <div className={`runtime-card${localAiInfo?.healthy ? ' is-ready' : ' is-missing'}`}>
+                      <span className="runtime-label">Health</span>
+                      <p className="runtime-title">{localAiStatusText}</p>
+                      <p className="runtime-copy">
+                        {localAiInfo?.fallbackToGroqAvailable
+                          ? 'If local AI is unavailable, Openflow can fall back to Groq automatically.'
+                          : 'If local AI is unavailable and no Groq key is set, Openflow falls back to the raw transcript.'}
+                      </p>
+                      <p className="runtime-meta runtime-path">{localAiInfo?.serverUrl ?? 'Loading server URL...'}</p>
+                      {localAiInfo?.runningModelFileName &&
+                      localAiInfo.runningModelFileName !== localAiInfo.selectedModelValue ? (
+                        <p className="runtime-meta runtime-warning">
+                          Running model: {localAiInfo.runningModelFileName}. Restart local AI to switch to the newly selected model.
+                        </p>
+                      ) : null}
+                    </div>
+                    <div className="runtime-card">
+                      <span className="runtime-label">Actions</span>
+                      <p className="runtime-title">Managed by Openflow</p>
+                      <p className="runtime-copy">Install the runtime and model once, then start or stop the local cleanup server whenever you want.</p>
+                      <div className="runtime-actions">
+                        <button
+                          className="secondary-button"
+                          type="button"
+                          onClick={() =>
+                            void runLocalAiAction(
+                              'install-runtime',
+                              () => window.voskFlow.installLocalAiRuntime(),
+                              'Local AI runtime installed.'
+                            )
+                          }
+                          disabled={localAiBusyAction !== null}
+                        >
+                          {localAiBusyAction === 'install-runtime' ? 'Installing runtime…' : localAiInfo?.runtimeInstalled ? 'Reinstall runtime' : 'Install runtime'}
+                        </button>
+                        <button
+                          className="secondary-button"
+                          type="button"
+                          onClick={() =>
+                            void runLocalAiAction(
+                              'install-model',
+                              () => window.voskFlow.installLocalAiModel(),
+                              'Local AI model installed.'
+                            )
+                          }
+                          disabled={localAiBusyAction !== null}
+                        >
+                          {localAiBusyAction === 'install-model' ? 'Installing model…' : localAiInfo?.modelInstalled ? 'Reinstall model' : 'Install model'}
+                        </button>
+                        {localAiInfo?.healthy ? (
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            onClick={() =>
+                              void runLocalAiAction(
+                                'stop-local-ai',
+                                () => window.voskFlow.stopLocalAi(),
+                                'Local AI server stopped.'
+                              )
+                            }
+                            disabled={localAiBusyAction !== null}
+                          >
+                            {localAiBusyAction === 'stop-local-ai' ? 'Stopping…' : 'Stop local AI'}
+                          </button>
+                        ) : (
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            onClick={() =>
+                              void runLocalAiAction(
+                                'start-local-ai',
+                                () => window.voskFlow.startLocalAi(),
+                                'Local AI server is ready.'
+                              )
+                            }
+                            disabled={
+                              localAiBusyAction !== null ||
+                              !localAiInfo?.runtimeInstalled ||
+                              !localAiInfo?.modelInstalled
+                            }
+                          >
+                            {localAiBusyAction === 'start-local-ai' ? 'Starting…' : 'Start local AI'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {localAiInfo?.downloadState ? (
+                    <div className="download-status-card">
+                      <div className="download-status-head">
+                        <span className="runtime-label">Transfer</span>
+                        <span className="download-status-percent">
+                          {localAiInfo.downloadState.percent !== undefined
+                            ? `${localAiInfo.downloadState.percent}%`
+                            : localAiInfo.downloadState.phase === 'extracting'
+                              ? 'Extracting'
+                              : 'Downloading'}
+                        </span>
+                      </div>
+                      <p className="runtime-title">{localAiInfo.downloadState.label}</p>
+                      <p className="runtime-copy">{localAiInfo.downloadState.detail}</p>
+                      <div className="download-progress-track" aria-hidden="true">
+                        <span
+                          className="download-progress-fill"
+                          style={{
+                            width:
+                              localAiInfo.downloadState.percent !== undefined
+                                ? `${localAiInfo.downloadState.percent}%`
+                                : localAiInfo.downloadState.phase === 'extracting'
+                                  ? '100%'
+                                  : '18%'
+                          }}
+                        />
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {localAiInfo?.lastError ? <div className="history-error">{localAiInfo.lastError}</div> : null}
+
+                  <div className="cleanup-grid">
+                    <div className="runtime-card is-missing">
+                      <span className="runtime-label">Local AI runtime</span>
+                      <p className="runtime-title">Remove runtime files</p>
+                      <p className="runtime-copy">Deletes the downloaded llama.cpp runtime and stops the local server if it is running.</p>
+                      <button
+                        className="danger-button"
+                        type="button"
+                        onClick={() =>
+                          void runCleanupAction(
+                            'cleanup-runtime',
+                            () => window.voskFlow.removeLocalAiRuntime(),
+                            'Local AI runtime removed.'
+                          )
+                        }
+                        disabled={localAiBusyAction !== null}
+                      >
+                        {localAiBusyAction === 'cleanup-runtime' ? 'Removing runtime…' : 'Remove runtime'}
+                      </button>
+                    </div>
+
+                    <div className="runtime-card is-missing">
+                      <span className="runtime-label">Local AI models</span>
+                      <p className="runtime-title">Remove downloaded model files</p>
+                      <p className="runtime-copy">Deletes every downloaded local cleanup model and stops the local server first if needed.</p>
+                      <button
+                        className="danger-button"
+                        type="button"
+                        onClick={() =>
+                          void runCleanupAction(
+                            'cleanup-models',
+                            () => window.voskFlow.removeLocalAiModels(),
+                            'Local AI models removed.'
+                          )
+                        }
+                        disabled={localAiBusyAction !== null}
+                      >
+                        {localAiBusyAction === 'cleanup-models' ? 'Removing models…' : 'Remove models'}
+                      </button>
+                    </div>
+                  </div>
+                </article>
+              </div>
+            </section>
+          ) : null}
+
+          {activeTab === 'prompts' ? (
+            <section className="page page-prompts">
+              <div className="section-header">
+                <div>
+                  <h2 className="page-heading">Prompts</h2>
+                  <p className="page-subcopy">Edit built-in filters, tune the instructions, and create custom filters for specialized cleanup behavior.</p>
+                </div>
+                <button className="secondary-button" type="button" onClick={() => void addPromptFilter()}>
+                  Create filter
+                </button>
+              </div>
+
+              <div className="settings-stack">
+                {promptFilters.map((filter) => (
+                  <article key={filter.id} className="settings-card">
+                    <div className="settings-card-head">
+                      <div>
+                        <p className="settings-title">{filter.builtIn ? 'Built-in filter' : 'Custom filter'}</p>
+                        <p className="settings-description">
+                          {filter.builtIn
+                            ? 'This filter ships with Openflow, but you can still customize its prompt.'
+                            : 'This is a user-created filter. You can rename it, edit the prompt, or remove it.'}
+                        </p>
+                      </div>
+                      <div className="prompt-card-actions">
+                        <button
+                          className="secondary-button"
+                          type="button"
+                          onClick={() => void savePromptFilter(filter.id)}
+                          disabled={!hasPromptDraftChanges(filter)}
+                        >
+                          Save
+                        </button>
+                        <button
+                          className={`secondary-button${settings.defaultStyle === filter.id ? ' is-active' : ''}`}
+                          type="button"
+                          onClick={() =>
+                            void handleSettingsChange({
+                              ...settings,
+                              defaultStyle: filter.id
+                            })
+                          }
+                        >
+                          {settings.defaultStyle === filter.id ? 'Default filter' : 'Set as default'}
+                        </button>
+                        {!filter.builtIn ? (
+                          <button
+                            className="danger-button prompt-remove-button"
+                            type="button"
+                            onClick={() => void removePromptFilter(filter.id)}
+                          >
+                            Remove filter
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <div className="prompt-editor-grid">
+                      <label className="prompt-field">
+                        <span className="runtime-label">Filter name</span>
+                        <input
+                          className="text-input"
+                          type="text"
+                          value={promptDrafts[filter.id]?.label ?? filter.label}
+                          onChange={(event) =>
+                            updatePromptDraft(filter.id, { label: event.target.value })
+                          }
+                        />
+                      </label>
+
+                      <label className="prompt-field prompt-field-wide">
+                        <span className="runtime-label">Prompt instruction</span>
+                        <textarea
+                          className="prompt-textarea"
+                          value={promptDrafts[filter.id]?.instruction ?? filter.instruction}
+                          onChange={(event) =>
+                            updatePromptDraft(filter.id, { instruction: event.target.value })
+                          }
+                        />
+                      </label>
+                    </div>
+
+                    {promptErrors[filter.id] ? (
+                      <div className="history-error prompt-error-banner">{promptErrors[filter.id]}</div>
+                    ) : null}
+                  </article>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          {activeTab === 'info' ? (
+            <section className="page page-info">
+              <div className="page-intro settings-intro">
+                <h2 className="page-heading">Info</h2>
+                <p className="page-subcopy">Technical runtime details for the active Whisper backend, bundled runtimes, and the currently selected model file.</p>
+              </div>
+
+              <div className="settings-stack">
+                <article className="settings-card">
+                  <div className="runtime-grid">
+                    <div className={`runtime-card${bootData?.modelInfo.binaryExists && bootData?.modelInfo.exists ? ' is-ready' : ' is-missing'}`}>
+                      <span className="runtime-label">Active model</span>
+                      <p className="runtime-title">{selectedOfflineModel.label}</p>
+                      <p className="runtime-copy">{bootData?.modelInfo.binaryExists && bootData?.modelInfo.exists ? 'Installed and ready' : 'Needs setup'}</p>
+                      <p className="runtime-meta">{selectedOfflineModel.diskSize} · {selectedOfflineModel.accuracy} accuracy · {selectedOfflineModel.speed} speed</p>
+                    </div>
+                    <div className={`runtime-card${bootData?.modelInfo.binaryExists ? ' is-ready' : ' is-missing'}`}>
+                      <span className="runtime-label">Active backend</span>
+                      <p className="runtime-title">{bootData?.modelInfo.activeBackendLabel ?? 'Unavailable'}</p>
+                      <p className="runtime-copy">
+                        {bootData?.modelInfo.binaryExists
+                          ? `Approx. ${selectedOfflineModel.memoryUsage} RAM during transcription`
+                          : 'Bundled whisper.cpp runtime missing'}
+                      </p>
+                      <p className="runtime-meta runtime-path">{bootData?.modelInfo.binaryPath}</p>
+                    </div>
+                    <div className={`runtime-card${bootData?.modelInfo.vulkanRuntimeBundled ? ' is-ready' : ' is-missing'}`}>
+                      <span className="runtime-label">Vulkan</span>
+                      <p className="runtime-title">
+                        {bootData?.modelInfo.vulkanRuntimeBundled ? 'Bundled in this build' : 'Not bundled in this build'}
+                      </p>
+                      <p className="runtime-copy">
+                        {bootData?.modelInfo.systemVulkanAvailable
+                          ? 'System Vulkan tooling detected'
+                          : 'System Vulkan tooling was not detected'}
+                      </p>
+                      <p className="runtime-meta runtime-path">{bootData?.modelInfo.vulkanRuntimePath}</p>
+                    </div>
+                  </div>
+
+                  <div className="cleanup-grid backend-grid">
+                    {(bootData?.modelInfo.availableBackends ?? []).map((backend) => (
+                      <div
+                        key={backend.id}
+                        className={`runtime-card${backend.bundled ? ' is-ready' : ' is-missing'}`}
+                      >
+                        <span className="runtime-label">{backend.kind === 'vulkan' ? 'GPU backend' : 'CPU backend'}</span>
+                        <p className="runtime-title">{backend.label}</p>
+                        <p className="runtime-copy">{backend.note ?? (backend.bundled ? 'Ready' : 'Missing')}</p>
+                        <p className="runtime-meta runtime-path">{backend.binaryPath}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  {bootData?.modelInfo.fallbackReason ? (
+                    <div className="history-error">{bootData.modelInfo.fallbackReason}</div>
+                  ) : null}
+
+                  <div className="runtime-grid">
+                    <div className={`runtime-card${bootData?.modelInfo.exists ? ' is-ready' : ' is-missing'}`}>
+                      <span className="runtime-label">Selected model path</span>
+                      <p className="runtime-title">{selectedOfflineModel.fileName}</p>
+                      <p className="runtime-copy">
+                        {bootData?.modelInfo.exists ? 'Downloaded and ready' : 'Download this model before first transcription'}
+                      </p>
+                      <p className="runtime-meta runtime-path">{bootData?.modelInfo.absolutePath}</p>
+                    </div>
+                  </div>
+                </article>
+              </div>
+            </section>
+          ) : null}
+
+          {activeTab === 'settings' ? (
+            <section className="page page-settings">
+              <div className="page-intro settings-intro">
+                <h2 className="page-heading">Settings</h2>
+                <p className="page-subcopy">Manage app-wide behavior, vocabulary, startup, and global cleanup actions.</p>
+              </div>
+
+              <div className="settings-stack">
                 <article className="settings-card">
                   <p className="settings-title">Vocabulary</p>
                   <p className="settings-description">Names, brands, and technical terms to preserve exactly when the transcript implies them.</p>
@@ -900,27 +1874,52 @@ export function App(): JSX.Element {
                 <article className="settings-card">
                   <div className="settings-card-head">
                     <div>
-                      <p className="settings-title">Offline model and runtime</p>
-                      <p className="settings-description">Bundled Whisper small model and the current runtime installation path.</p>
+                      <p className="settings-title">Cleanup</p>
+                      <p className="settings-description">Reset saved app data or clear every downloaded Openflow asset in one step.</p>
                     </div>
-                    <button className="secondary-button icon-secondary-button" type="button" onClick={() => void window.voskFlow.openModelsFolder()}>
-                      <OpenFolderIcon />
-                      Open folder
-                    </button>
                   </div>
 
-                  <div className="runtime-grid">
-                    <div className={`runtime-card${bootData?.modelInfo.binaryExists && bootData?.modelInfo.exists ? ' is-ready' : ' is-missing'}`}>
-                      <span className="runtime-label">Model</span>
-                      <p className="runtime-title">{selectedOfflineModel.label}</p>
-                      <p className="runtime-copy">{bootData?.modelInfo.binaryExists && bootData?.modelInfo.exists ? 'Installed and ready' : 'Needs setup'}</p>
-                      <p className="runtime-meta">{selectedOfflineModel.diskSize} · {selectedOfflineModel.accuracy} accuracy · {selectedOfflineModel.speed} speed</p>
+                  <div className="cleanup-grid">
+                    <div className="runtime-card is-missing">
+                      <span className="runtime-label">Settings + history</span>
+                      <p className="runtime-title">Reset saved app data</p>
+                      <p className="runtime-copy">Clears your capture history and restores settings to their default values.</p>
+                      <button
+                        className="danger-button"
+                        type="button"
+                        onClick={() =>
+                          void runCleanupAction(
+                            'cleanup-settings-history',
+                            () => window.voskFlow.resetSettingsAndHistory(),
+                            'Settings reset and history cleared.',
+                            { clearPreviews: true }
+                          )
+                        }
+                        disabled={localAiBusyAction !== null}
+                      >
+                        {localAiBusyAction === 'cleanup-settings-history' ? 'Resetting…' : 'Reset settings + history'}
+                      </button>
                     </div>
-                    <div className={`runtime-card${bootData?.modelInfo.binaryExists ? ' is-ready' : ' is-missing'}`}>
-                      <span className="runtime-label">Runtime</span>
-                      <p className="runtime-title">{bootData?.modelInfo.binaryExists ? 'whisper.cpp ready' : 'whisper.cpp missing'}</p>
-                      <p className="runtime-copy">Approx. {selectedOfflineModel.memoryUsage} RAM during transcription</p>
-                      <p className="runtime-meta runtime-path">{bootData?.modelInfo.absolutePath}</p>
+
+                    <div className="runtime-card is-missing">
+                      <span className="runtime-label">Full reset</span>
+                      <p className="runtime-title">Delete all local Openflow data</p>
+                      <p className="runtime-copy">Removes downloaded Whisper models, local AI runtime and models, saved settings, history, and leftover capture files.</p>
+                      <button
+                        className="danger-button"
+                        type="button"
+                        onClick={() =>
+                          void runCleanupAction(
+                            'cleanup-full-reset',
+                            () => window.voskFlow.fullReset(),
+                            'Openflow local data has been fully reset.',
+                            { clearPreviews: true }
+                          )
+                        }
+                        disabled={localAiBusyAction !== null}
+                      >
+                        {localAiBusyAction === 'cleanup-full-reset' ? 'Resetting everything…' : 'Full reset'}
+                      </button>
                     </div>
                   </div>
                 </article>

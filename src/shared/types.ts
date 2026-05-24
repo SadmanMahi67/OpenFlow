@@ -1,18 +1,37 @@
 export const GROQ_REFINEMENT_MODEL = 'llama-3.1-8b-instant';
+export const LOCAL_REFINEMENT_MODEL = 'Llama-3.2-3B-Instruct-Q4_K_M.gguf';
+export const LOCAL_REFINEMENT_MODEL_LABEL = 'Llama 3.2 3B Instruct Q4_K_M';
+export const LOCAL_REFINEMENT_MODEL_DOWNLOAD_URL =
+  'https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf?download=true';
+export const LOCAL_REFINEMENT_RUNTIME_RELEASE = 'b9060';
+export const LOCAL_REFINEMENT_RUNTIME_ARCHIVE_NAME = 'latest win-cpu-x64 / win-avx2-x64 asset';
+export const LOCAL_REFINEMENT_RUNTIME_DOWNLOAD_URL =
+  'https://github.com/ggml-org/llama.cpp/releases/latest';
+export const GROQ_API_KEYS_URL = 'https://console.groq.com/keys';
 export const DEFAULT_WHISPER_MODEL = 'small.en';
 export const WHISPER_BINARY_ARCHIVE_NAME = 'whisper-bin-x64.zip + whisper-bin-Win32.zip';
 export const WHISPER_BINARY_DOWNLOAD_URL =
   'https://github.com/ggml-org/whisper.cpp/releases/download/v1.8.4/';
 
-export type OfflineModelId = 'small.en';
+export type OfflineModelId =
+  | 'small.en'
+  | 'medium.en'
+  | 'large-v3-turbo-q5_0'
+  | 'large-v3-turbo';
+export type AccelerationMode = 'auto' | 'cpu' | 'vulkan';
+export type TranscriptionBackendId = 'vulkan' | 'cpu-x64' | 'cpu-win32' | 'none';
+export type RefinementMode = 'groq' | 'local';
+export type LocalAiDownloadTarget = 'runtime' | 'model';
+export type LocalAiDownloadPhase = 'downloading' | 'extracting';
 
-export type RefinementStyle =
+export type BuiltInRefinementStyle =
   | 'none'
   | 'casual'
   | 'formal'
   | 'summarised'
   | 'bullet-points'
   | 'email-ready';
+export type RefinementStyle = string;
 
 export type OverlayStatus =
   | 'hidden'
@@ -23,9 +42,14 @@ export type OverlayStatus =
   | 'error';
 
 export interface AppSettings {
+  refinementMode: RefinementMode;
   groqApiKey: string;
   refinementModel: string;
+  localRefinementModel: string;
+  offlineModel: OfflineModelId;
+  accelerationMode: AccelerationMode;
   defaultStyle: RefinementStyle;
+  promptFilters: PromptFilter[];
   autoPaste: boolean;
   launchAtStartup: boolean;
   vocabulary: string[];
@@ -39,6 +63,7 @@ export interface HistoryEntry {
   style: RefinementStyle;
   pasted: boolean;
   error?: string;
+  notice?: string;
 }
 
 export interface OverlayState {
@@ -60,6 +85,91 @@ export interface ModelInfo {
   binaryDownloadUrl: string;
   vadModelPath: string;
   vadExists: boolean;
+  accelerationMode: AccelerationMode;
+  activeBackend: TranscriptionBackendId;
+  activeBackendLabel: string;
+  fallbackReason?: string;
+  downloadState?: DownloadState;
+  vulkanRuntimePath: string;
+  vulkanRuntimeBundled: boolean;
+  systemVulkanAvailable: boolean;
+  vulkanSelectable: boolean;
+  availableBackends: Array<{
+    id: TranscriptionBackendId;
+    label: string;
+    kind: 'cpu' | 'vulkan';
+    bundled: boolean;
+    selectable: boolean;
+    binaryPath: string;
+    note?: string;
+  }>;
+  availableModels: Array<{
+    value: OfflineModelId;
+    label: string;
+    fileName: string;
+    downloadUrl: string;
+    diskSize: string;
+    memoryUsage: string;
+    accuracy: string;
+    speed: string;
+    recommended?: boolean;
+    installed: boolean;
+    removable: boolean;
+    absolutePath: string;
+  }>;
+}
+
+export interface LocalRefinementModelOption {
+  value: string;
+  label: string;
+  fileName: string;
+  downloadUrl: string;
+  summary: string;
+  size: string;
+  recommended?: boolean;
+}
+
+export interface PromptFilter {
+  id: RefinementStyle;
+  label: string;
+  instruction: string;
+  builtIn?: boolean;
+}
+
+export interface DownloadState {
+  phase: LocalAiDownloadPhase;
+  label: string;
+  detail: string;
+  receivedBytes: number;
+  totalBytes?: number;
+  percent?: number;
+}
+
+export interface LocalAiDownloadState extends DownloadState {
+  target: LocalAiDownloadTarget;
+}
+
+export interface LocalAiInfo {
+  runtimePath: string;
+  runtimeInstalled: boolean;
+  modelPath: string;
+  modelInstalled: boolean;
+  modelLabel: string;
+  modelFileName: string;
+  modelSummary: string;
+  modelSize: string;
+  modelDownloadUrl: string;
+  runtimeArchiveName: string;
+  runtimeDownloadUrl: string;
+  serverUrl: string;
+  serverRunning: boolean;
+  runningModelFileName?: string;
+  healthy: boolean;
+  fallbackToGroqAvailable: boolean;
+  availableModels: LocalRefinementModelOption[];
+  selectedModelValue: string;
+  downloadState?: LocalAiDownloadState;
+  lastError?: string;
 }
 
 export interface BootstrapPayload {
@@ -67,6 +177,7 @@ export interface BootstrapPayload {
   history: HistoryEntry[];
   overlayState: OverlayState;
   modelInfo: ModelInfo;
+  localAiInfo: LocalAiInfo;
   version: string;
 }
 
@@ -83,13 +194,54 @@ export interface ProcessTranscriptResponse {
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
+  refinementMode: 'groq',
   groqApiKey: '',
   refinementModel: GROQ_REFINEMENT_MODEL,
+  localRefinementModel: LOCAL_REFINEMENT_MODEL,
+  offlineModel: DEFAULT_WHISPER_MODEL,
+  accelerationMode: 'auto',
   defaultStyle: 'casual',
+  promptFilters: [],
   autoPaste: true,
   launchAtStartup: false,
   vocabulary: []
 };
+
+export const LOCAL_REFINEMENT_MODEL_OPTIONS: LocalRefinementModelOption[] = [
+  {
+    value: 'Llama-3.2-3B-Instruct-Q4_K_M.gguf',
+    label: 'Llama 3.2 3B Instruct',
+    fileName: 'Llama-3.2-3B-Instruct-Q4_K_M.gguf',
+    downloadUrl:
+      'https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf?download=true',
+    summary: 'Fastest local cleanup option with good overall instruction following.',
+    size: 'Approx. 2.0 GB',
+    recommended: true
+  },
+  {
+    value: 'google_gemma-3-4b-it-Q4_K_M.gguf',
+    label: 'Gemma 3 4B IT',
+    fileName: 'google_gemma-3-4b-it-Q4_K_M.gguf',
+    downloadUrl:
+      'https://huggingface.co/bartowski/google_gemma-3-4b-it-GGUF/resolve/main/google_gemma-3-4b-it-Q4_K_M.gguf?download=true',
+    summary: 'Stronger wording cleanup and better handling for tricky named terms.',
+    size: 'Approx. 3.0 GB'
+  },
+  {
+    value: 'Qwen2.5-3B-Instruct-Q4_K_M.gguf',
+    label: 'Qwen 2.5 3B Instruct',
+    fileName: 'Qwen2.5-3B-Instruct-Q4_K_M.gguf',
+    downloadUrl:
+      'https://huggingface.co/bartowski/Qwen2.5-3B-Instruct-GGUF/resolve/main/Qwen2.5-3B-Instruct-Q4_K_M.gguf?download=true',
+    summary: 'Balanced formatting and cleanup with crisp structured rewrites.',
+    size: 'Approx. 2.1 GB'
+  }
+];
+
+export const REFINEMENT_MODE_OPTIONS: Array<{ value: RefinementMode; label: string }> = [
+  { value: 'groq', label: 'Groq API' },
+  { value: 'local', label: 'Local AI' }
+];
 
 export const DEFAULT_OVERLAY_STATE: OverlayState = {
   visible: false,
@@ -97,14 +249,55 @@ export const DEFAULT_OVERLAY_STATE: OverlayState = {
   message: ''
 };
 
-export const STYLE_OPTIONS: Array<{ value: RefinementStyle; label: string }> = [
-  { value: 'casual', label: 'Casual' },
-  { value: 'formal', label: 'Formal' },
-  { value: 'summarised', label: 'Summarised' },
-  { value: 'bullet-points', label: 'Bullet Points' },
-  { value: 'email-ready', label: 'Email Ready' },
-  { value: 'none', label: 'None (Raw Whisper)' }
+export const BUILT_IN_PROMPT_FILTERS: PromptFilter[] = [
+  {
+    id: 'casual',
+    label: 'Casual',
+    instruction:
+      'Rewrite the transcript into polished but natural casual writing. Fix punctuation, spelling, and obvious speech-to-text mistakes while preserving meaning.',
+    builtIn: true
+  },
+  {
+    id: 'formal',
+    label: 'Formal',
+    instruction:
+      'Rewrite the transcript into clear professional formal writing. Keep the meaning intact and improve grammar, spelling, and structure.',
+    builtIn: true
+  },
+  {
+    id: 'summarised',
+    label: 'Summarised',
+    instruction:
+      'Summarize the transcript into a shorter version that keeps the key meaning and intent. Remove repetition and filler.',
+    builtIn: true
+  },
+  {
+    id: 'bullet-points',
+    label: 'Bullet Points',
+    instruction:
+      'Rewrite the transcript as concise bullet points. Keep only the content that is present in the transcript.',
+    builtIn: true
+  },
+  {
+    id: 'email-ready',
+    label: 'Email Ready',
+    instruction:
+      'Rewrite the transcript into an email-ready message with a polished tone, complete sentences, and clear flow. Do not add greetings or sign-offs unless they are implied.',
+    builtIn: true
+  },
+  {
+    id: 'none',
+    label: 'None (Raw Whisper)',
+    instruction: 'Return the raw transcript unchanged.',
+    builtIn: true
+  }
 ];
+
+export const STYLE_OPTIONS: Array<{ value: RefinementStyle; label: string }> =
+  BUILT_IN_PROMPT_FILTERS.map((filter) => ({
+    value: filter.id,
+    label: filter.label
+  }));
 
 export const OFFLINE_MODEL_OPTIONS: Array<{
   value: OfflineModelId;
@@ -127,5 +320,35 @@ export const OFFLINE_MODEL_OPTIONS: Array<{
     accuracy: 'High',
     speed: 'Balanced',
     recommended: true
+  },
+  {
+    value: 'medium.en',
+    label: 'Medium',
+    fileName: 'ggml-medium.en.bin',
+    downloadUrl: 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en.bin?download=true',
+    diskSize: '1.5 GB',
+    memoryUsage: '~2.5 GB',
+    accuracy: 'Higher',
+    speed: 'Slower'
+  },
+  {
+    value: 'large-v3-turbo-q5_0',
+    label: 'Large Turbo Q5',
+    fileName: 'ggml-large-v3-turbo-q5_0.bin',
+    downloadUrl: 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin?download=true',
+    diskSize: '547 MB',
+    memoryUsage: '~1.6 GB',
+    accuracy: 'Very high',
+    speed: 'Balanced'
+  },
+  {
+    value: 'large-v3-turbo',
+    label: 'Large Turbo',
+    fileName: 'ggml-large-v3-turbo.bin',
+    downloadUrl: 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin?download=true',
+    diskSize: '1.5 GB',
+    memoryUsage: '~3.0 GB',
+    accuracy: 'Very high',
+    speed: 'Slowest'
   }
 ];

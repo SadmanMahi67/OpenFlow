@@ -6,7 +6,6 @@ import { execFileSync } from 'node:child_process';
 const rootDirectory = process.cwd();
 const whisperBaseDirectory = path.join(rootDirectory, 'resources', 'whispercpp');
 const binaryDirectory = path.join(whisperBaseDirectory, 'bin');
-const modelDirectory = path.join(whisperBaseDirectory, 'models');
 const runtimeArchives = [
   {
     label: 'x64',
@@ -23,9 +22,6 @@ const runtimeArchives = [
     downloadUrl: 'https://github.com/ggml-org/whisper.cpp/releases/download/v1.8.4/whisper-bin-Win32.zip'
   }
 ];
-const modelPath = path.join(modelDirectory, 'ggml-small.en.bin');
-
-const modelUrl = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin?download=true';
 
 function downloadFile(url, destinationPath, redirectCount = 0) {
   return new Promise((resolve, reject) => {
@@ -71,7 +67,6 @@ function downloadFile(url, destinationPath, redirectCount = 0) {
 }
 
 fs.mkdirSync(binaryDirectory, { recursive: true });
-fs.mkdirSync(modelDirectory, { recursive: true });
 
 for (const runtimeArchive of runtimeArchives) {
   fs.mkdirSync(runtimeArchive.destinationPath, { recursive: true });
@@ -95,9 +90,4 @@ for (const runtimeArchive of runtimeArchives) {
   );
 }
 
-if (!fs.existsSync(modelPath)) {
-  console.log(`Downloading Whisper small.en model from ${modelUrl}`);
-  await downloadFile(modelUrl, modelPath);
-}
-
-console.log('Whisper runtime and default model are ready.');
+console.log('Whisper CPU runtimes are ready. Download Whisper models from inside Openflow.');
