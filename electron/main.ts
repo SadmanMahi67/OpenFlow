@@ -60,6 +60,11 @@ import {
   saveSettings
 } from './store';
 
+function getPowerShellPath(): string {
+  const systemRoot = process.env.SystemRoot || 'C:\\Windows';
+  return path.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+}
+
 const APP_TITLE = 'Openflow';
 const DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL;
 const GROQ_REFINEMENT_TIMEOUT_MS = 20000;
@@ -874,7 +879,7 @@ async function expandZipArchive(archivePath: string, destinationPath: string): P
 
   await new Promise<void>((resolve, reject) => {
     const child = spawn(
-      'powershell',
+      getPowerShellPath(),
       [
         '-NoProfile',
         '-NonInteractive',
@@ -1588,7 +1593,7 @@ async function refineWithSelectedMode(
 async function sendPasteShortcut(): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const child = spawn(
-      'powershell',
+      getPowerShellPath(),
       [
         '-NoProfile',
         '-NonInteractive',
@@ -1732,7 +1737,7 @@ async function handleHotkeySignal(signal: string): Promise<void> {
 async function setupGlobalHotkey(): Promise<void> {
   const helperPath = getHotkeyHelperPath();
   const helperProcess = spawn(
-    'powershell',
+    getPowerShellPath(),
     ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', helperPath],
     {
       windowsHide: true,
@@ -2086,7 +2091,11 @@ async function bootstrap(): Promise<void> {
   await createMainWindow();
   await createOverlayWindow();
   createTray();
-  await setupGlobalHotkey();
+  try {
+    await setupGlobalHotkey();
+  } catch (err) {
+    console.error('Failed to start global hotkey listener, hotkey will not work:', err);
+  }
 
   app.on('activate', () => showMainWindow());
 }
