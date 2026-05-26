@@ -1,21 +1,53 @@
 import { useEffect, useRef, useState } from 'react';
 
+import { BackgroundCanvas } from './components/BackgroundCanvas';
+import { MicButton } from './components/MicButton';
+import { PetOverlay } from './components/PetOverlay';
+import { PetTab } from './components/PetTab';
+import { SegmentedControl } from './components/SegmentedControl';
+import { ToggleSwitch } from './components/ToggleSwitch';
+
 import {
   BUILT_IN_PROMPT_FILTERS,
-  DEFAULT_OVERLAY_STATE,
+  CAPTURE_SOUND_OPTIONS,
   DEFAULT_SETTINGS,
   GROQ_REFINEMENT_MODEL,
   OFFLINE_MODEL_OPTIONS,
+  PASTE_SOUND_OPTIONS,
   REFINEMENT_MODE_OPTIONS,
   type AppSettings,
   type BootstrapPayload,
+  type CaptureSoundId,
   type HistoryEntry,
-  type LocalAiInfo,
-  type OverlayState,
+  type PasteSoundId,
   type PromptFilter,
-  type RefinementMode,
   type RefinementStyle
 } from './shared/types';
+
+import {
+  playPop, playClick, playRising, playBlip, playTap, playWhoosh, playPulse,
+  playChime, playDing, playAscend, playDescend, playSparkle, playChord, playConfirm
+} from './lib/sounds';
+
+const CAPTURE_FN_MAP: Record<string, () => void> = {
+  pop: playPop,
+  click: playClick,
+  rising: playRising,
+  blip: playBlip,
+  tap: playTap,
+  whoosh: playWhoosh,
+  pulse: playPulse,
+};
+
+const PASTE_FN_MAP: Record<string, () => void> = {
+  chime: playChime,
+  ding: playDing,
+  ascend: playAscend,
+  descend: playDescend,
+  sparkle: playSparkle,
+  chord: playChord,
+  confirm: playConfirm,
+};
 
 type AppStatus =
   | 'booting'
@@ -26,7 +58,7 @@ type AppStatus =
   | 'done'
   | 'error';
 
-type AppTab = 'home' | 'history' | 'transcription' | 'ai' | 'prompts' | 'info' | 'settings';
+type AppTab = 'home' | 'history' | 'transcription' | 'ai' | 'prompts' | 'pet' | 'info' | 'settings';
 type PromptDraft = {
   label: string;
   instruction: string;
@@ -40,6 +72,43 @@ const ACCELERATION_MODE_OPTIONS: Array<{
   { value: 'cpu', label: 'CPU' },
   { value: 'vulkan', label: 'GPU (Vulkan)' }
 ];
+
+const SHADER_PRESETS: Record<string, {
+  label: string;
+  colorCount: number;
+  presets: Record<string, { colors: string[]; label: string }>;
+}> = {
+  'flowing-gradient': {
+    label: 'Flowing Gradient',
+    colorCount: 4,
+    presets: {
+      'dark-purple': { colors: ['#050010','#150828','#2a1040','#0a0415'], label: 'Dark Purple' },
+      'midnight-ocean': { colors: ['#000a15','#002030','#003850','#001025'], label: 'Midnight Ocean' },
+      'ember-night': { colors: ['#0a0300','#200a02','#3a1500','#150800'], label: 'Ember Night' },
+      'deep-forest': { colors: ['#000805','#002010','#003818','#001008'], label: 'Deep Forest' },
+    }
+  },
+  'aurora': {
+    label: 'Aurora',
+    colorCount: 3,
+    presets: {
+      'aurora-default': { colors: ['#1a0830','#003818','#002440'], label: 'Aurora' },
+      'aurora-fire': { colors: ['#200800','#3a2000','#2a1000'], label: 'Fire' },
+      'aurora-ice': { colors: ['#002038','#003838','#003050'], label: 'Ice' },
+      'aurora-neon': { colors: ['#200020','#002020','#202000'], label: 'Neon' },
+    }
+  },
+  'plasma': {
+    label: 'Plasma',
+    colorCount: 2,
+    presets: {
+      'plasma-default': { colors: ['#2A181E','#000000'], label: 'Default' },
+      'plasma-fire': { colors: ['#300800','#000000'], label: 'Fire' },
+      'plasma-neon': { colors: ['#200020','#000808'], label: 'Neon' },
+      'plasma-ocean': { colors: ['#001820','#000408'], label: 'Ocean' },
+    }
+  },
+};
 
 type TranscriberLike = {
   warmup: () => Promise<void>;
@@ -58,53 +127,6 @@ function formatDate(value: string): string {
   return date.toLocaleString();
 }
 
-function getStatusCopy(status: AppStatus): { title: string; detail: string; hint: string } {
-  switch (status) {
-    case 'booting':
-      return {
-        title: 'Starting up',
-        detail: 'Loading your local settings and history.',
-        hint: 'Preparing your workspace'
-      };
-    case 'loading-model':
-      return {
-        title: 'Preparing audio',
-        detail: 'Checking the offline Whisper runtime and capture pipeline.',
-        hint: 'Mic and model warm-up in progress'
-      };
-    case 'recording':
-      return {
-        title: 'Recording',
-        detail: 'Capture is live. Release Ctrl + Win when you are finished speaking.',
-        hint: 'Release Ctrl + Win to stop'
-      };
-    case 'processing':
-      return {
-        title: 'Processing',
-        detail: 'Whisper is transcribing and the cleanup model is polishing the text.',
-        hint: 'Finishing transcript and refinement'
-      };
-    case 'done':
-      return {
-        title: 'Done',
-        detail: 'Latest result is ready and stored in local history.',
-        hint: 'Hold Ctrl + Win to start again'
-      };
-    case 'error':
-      return {
-        title: 'Needs attention',
-        detail: 'The last capture hit an error. Review the note below.',
-        hint: 'Check the latest note for details'
-      };
-    case 'idle':
-      return {
-        title: 'Ready',
-        detail: 'Hold Ctrl + Win anywhere on Windows to start dictating.',
-        hint: 'Hold Ctrl + Win to dictate'
-      };
-  }
-}
-
 function parseVocabularyEntries(text: string): string[] {
   return text
     .split(/[,\r\n]+/)
@@ -118,30 +140,6 @@ async function copyText(text: string): Promise<void> {
   }
 
   await window.voskFlow.copyText(text);
-}
-
-function getOverlayTitle(state: OverlayState): string {
-  if (state.status === 'hidden' || state.status === 'idle') {
-    return 'Ready';
-  }
-
-  return state.message;
-}
-
-function getOverlayHint(state: OverlayState): string {
-  switch (state.status) {
-    case 'recording':
-      return 'Release Ctrl + Win to stop';
-    case 'processing':
-      return 'Whisper and AI cleanup are running';
-    case 'done':
-      return 'Transcript completed';
-    case 'error':
-      return 'Review the main app for details';
-    case 'hidden':
-    case 'idle':
-      return 'Hold Ctrl + Win to dictate';
-  }
 }
 
 function getHistoryStyleClass(style: RefinementStyle): string {
@@ -191,44 +189,7 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: s
 }
 
 function OverlayApp(): JSX.Element {
-  const [overlayState, setOverlayState] = useState<OverlayState>(DEFAULT_OVERLAY_STATE);
-
-  useEffect(() => {
-    void window.voskFlow.getBootstrap().then((payload) => setOverlayState(payload.overlayState));
-    return window.voskFlow.onOverlayState((nextState) => setOverlayState(nextState));
-  }, []);
-
-  return (
-    <main className={`overlay-shell overlay-${overlayState.status}`}>
-      <div className="overlay-card">
-        <div className="overlay-body">
-          <div className="overlay-status-row">
-            <div className="overlay-dot-wrap">
-              <div className="overlay-ring" />
-              <div className="overlay-dot" />
-            </div>
-            <span className="overlay-state-text">{getOverlayTitle(overlayState)}</span>
-          </div>
-
-          <div className="overlay-wave" aria-hidden={overlayState.status !== 'recording'}>
-            {Array.from({ length: 12 }).map((_, index) => (
-              <span key={index} className="overlay-wave-bar" />
-            ))}
-          </div>
-
-          <div className="overlay-progress" aria-hidden={overlayState.status !== 'processing'}>
-            <span className="overlay-progress-fill" />
-          </div>
-
-          <div className={`overlay-inline-message${overlayState.status === 'error' ? ' is-visible' : ''}`}>
-            {overlayState.status === 'error' ? overlayState.message : ''}
-          </div>
-        </div>
-
-        <div className="overlay-hint-bar">{getOverlayHint(overlayState)}</div>
-      </div>
-    </main>
-  );
+  return <PetOverlay />;
 }
 
 function HomeIcon(): JSX.Element {
@@ -292,50 +253,20 @@ function PromptIcon(): JSX.Element {
   );
 }
 
+function PetIcon(): JSX.Element {
+  return (
+    <svg className="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 2L9 7l-5 1 3.5 4.5L7 18l5-2.5L17 18l-.5-5.5L20 8l-5-1L12 2Z" />
+    </svg>
+  );
+}
+
 function InfoIcon(): JSX.Element {
   return (
     <svg className="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="12" r="10" />
       <path d="M12 16v-4" />
       <path d="M12 8h.01" />
-    </svg>
-  );
-}
-
-function CopyIcon(): JSX.Element {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="9" y="9" width="13" height="13" rx="2" />
-      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-    </svg>
-  );
-}
-
-function OpenFolderIcon(): JSX.Element {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3 6a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
-      <path d="M3 10h18" />
-    </svg>
-  );
-}
-
-function EyeIcon({ visible }: { visible: boolean }): JSX.Element {
-  if (visible) {
-    return (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M2 12s4-8 10-8 10 8 10 8-4 8-10 8S2 12 2 12Z" />
-        <circle cx="12" cy="12" r="3" />
-      </svg>
-    );
-  }
-
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3 3l18 18" />
-      <path d="M10.6 10.7A3 3 0 0 0 14 14" />
-      <path d="M9.4 5.5A10.2 10.2 0 0 1 12 5c6 0 10 7 10 7a17.6 17.6 0 0 1-4 4.9" />
-      <path d="M6.7 6.7A17.4 17.4 0 0 0 2 12s4 7 10 7a9.7 9.7 0 0 0 4-.9" />
     </svg>
   );
 }
@@ -355,10 +286,45 @@ export function App(): JSX.Element {
   const [showApiKey, setShowApiKey] = useState<boolean>(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [localAiBusyAction, setLocalAiBusyAction] = useState<string | null>(null);
+  const [accentTheme, setAccentTheme] = useState<string>('default');
+  const [backgroundStyle, setBackgroundStyle] = useState<string>('streaks');
+  const [bgShaderType, setBgShaderType] = useState<string>('plasma');
+  const [bgShaderColors, setBgShaderColors] = useState<string[]>(['#2A181E', '#000000']);
+  const [bgShaderPreset, setBgShaderPreset] = useState<string>('plasma-default');
+  const [bgCustomColors, setBgCustomColors] = useState<string[]>([]);
+
+  // Sync accent/background/shader from settings on boot
+  useEffect(() => {
+    if (bootData) {
+      setAccentTheme(settings.accentTheme ?? 'default');
+      setBackgroundStyle(settings.backgroundStyle ?? 'streaks');
+      const st = settings.bgShaderType ?? 'plasma';
+      setBgShaderType(st);
+      const raw = settings.bgShaderColors;
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw) as string[];
+          setBgShaderColors(parsed);
+          setBgCustomColors([]);
+          const shader = SHADER_PRESETS[st];
+          if (shader) {
+            const match = Object.entries(shader.presets).find(([, p]) =>
+              p.colors.length === parsed.length && p.colors.every((c, i) => c === parsed[i])
+            );
+            setBgShaderPreset(match ? match[0] : 'custom');
+            if (match) setBgCustomColors([]);
+            else setBgCustomColors([...parsed]);
+          }
+        } catch { /* ignore */ }
+      }
+    }
+  }, [bootData]);
   const [promptDrafts, setPromptDrafts] = useState<Record<string, PromptDraft>>({});
   const [promptErrors, setPromptErrors] = useState<Record<string, string>>({});
   const recordingRef = useRef<boolean>(false);
   const copyResetTimerRef = useRef<number | null>(null);
+  const startCaptureRef = useRef<() => Promise<void>>(async () => {});
+  const stopCaptureRef = useRef<() => Promise<void>>(async () => {});
 
   const applyBootstrap = (payload: BootstrapPayload): void => {
     setBootData(payload);
@@ -469,6 +435,8 @@ export function App(): JSX.Element {
         setLatestRefinedText(result.refinedText);
         setHistory((currentHistory) => [result.entry, ...currentHistory].slice(0, 200));
         setStatus('done');
+        const pasteFn = PASTE_FN_MAP[settings.soundPasteDone];
+        if (pasteFn) pasteFn();
         setNote(
           result.notice ??
             (result.pasted ? 'Refined text was pasted into the active window.' : 'Processing complete.')
@@ -481,8 +449,13 @@ export function App(): JSX.Element {
       }
     };
 
+    startCaptureRef.current = startCapture;
+    stopCaptureRef.current = stopCapture;
+
     const unsubscribe = window.voskFlow.onRecordingCommand((command) => {
       if (command === 'start') {
+        const captureFn = CAPTURE_FN_MAP[settings.soundCaptureStart];
+        if (captureFn) captureFn();
         void startCapture();
         return;
       }
@@ -502,11 +475,62 @@ export function App(): JSX.Element {
     };
   }, []);
 
+  // Inject accent theme CSS custom properties
+  useEffect(() => {
+    const THEMES: Record<string, string> = {
+      default: '120,140,255',
+      violet: '168,130,255',
+      rose: '255,110,130',
+      emerald: '60,210,140',
+      amber: '251,180,60',
+      sky: '56,190,255',
+      mono: '200,200,200'
+    };
+
+    const accent = THEMES[accentTheme] ?? THEMES.default;
+    const [r, g, b] = accent.split(',').map(Number);
+
+    let el = document.getElementById('theme-override');
+    if (!el) {
+      el = document.createElement('style');
+      el.id = 'theme-override';
+      document.head.appendChild(el);
+    }
+
+    el.textContent = `
+      :root { --acc-r: ${r}; --acc-g: ${g}; --acc-b: ${b}; --accent: rgb(${r},${g},${b}); --accent-glow: rgba(${r},${g},${b},0.14); }
+      .nav-item.active { color: rgb(${r},${g},${b}) !important; background: rgba(${r},${g},${b},0.09) !important; border-color: rgba(${r},${g},${b},0.14) !important; }
+      .seg-btn.on { background: rgba(${r},${g},${b},0.13) !important; color: rgb(${r},${g},${b}) !important; }
+      .toggle-switch.is-on { background: rgba(${r},${g},${b},0.45) !important; border-color: rgba(${r},${g},${b},0.6) !important; }
+      .model-card.active { border-color: rgba(${r},${g},${b},0.35) !important; background: rgba(${r},${g},${b},0.07) !important; }
+      .prompt-row.is-default { border-color: rgba(${r},${g},${b},0.3) !important; background: rgba(${r},${g},${b},0.055) !important; }
+      .download-progress-fill { background: linear-gradient(90deg, rgb(${r},${g},${b}), rgba(${r},${g},${b},0.6)) !important; }
+      .history-paste-state.is-pasted { background: rgba(${r},${g},${b},0.08) !important; color: rgb(${r},${g},${b}) !important; border-color: rgba(${r},${g},${b},0.15) !important; }
+      .page-title-accent { color: rgb(${r},${g},${b}) !important; }
+    `;
+  }, [accentTheme]);
+
+  // Sync background style visibility
+  useEffect(() => {
+    const shader = document.querySelector('.bg-canvas-shader') as HTMLElement | null;
+    const grid = document.querySelector('.grid-overlay') as HTMLElement | null;
+    if (!shader) return;
+    if (backgroundStyle === 'off') {
+      shader.style.opacity = '0';
+      if (grid) grid.style.opacity = '0';
+    } else if (backgroundStyle === 'minimal') {
+      shader.style.opacity = '0.3';
+      if (grid) grid.style.opacity = '0.6';
+    } else {
+      shader.style.opacity = '0.7';
+      if (grid) grid.style.opacity = '1';
+    }
+  }, [backgroundStyle]);
+
   if (overlayMode) {
     return <OverlayApp />;
   }
 
-  const statusCopy = getStatusCopy(status);
   const selectedOfflineModel =
     bootData?.modelInfo.availableModels.find((option) => option.value === settings.offlineModel) ??
     OFFLINE_MODEL_OPTIONS.find((option) => option.value === settings.offlineModel) ??
@@ -521,29 +545,14 @@ export function App(): JSX.Element {
           ? 'transcription'
           : activeTab === 'ai'
             ? 'ai refinement'
-            : activeTab === 'prompts'
-              ? 'prompts'
-              : activeTab === 'info'
-                ? 'info'
+            : activeTab === 'pet'
+              ? 'pet'
+              : activeTab === 'prompts'
+                ? 'prompts'
+                : activeTab === 'info'
+                  ? 'info'
               : 'settings';
-  const localAiInfo: LocalAiInfo | null = bootData?.localAiInfo ?? null;
   const offlineModelDownloadState = bootData?.modelInfo.downloadState;
-  const localAiStatusText = !localAiInfo
-    ? 'Loading local AI status...'
-    : localAiInfo.downloadState
-      ? localAiInfo.downloadState.phase === 'extracting'
-        ? `Extracting ${localAiInfo.downloadState.label}`
-        : `Downloading ${localAiInfo.downloadState.label}`
-    : localAiInfo.healthy
-      ? localAiInfo.runningModelFileName &&
-        localAiInfo.runningModelFileName !== localAiInfo.selectedModelValue
-        ? 'Running another model'
-        : 'Running and ready'
-      : localAiInfo.serverRunning
-        ? 'Starting up'
-        : localAiInfo.runtimeInstalled && localAiInfo.modelInstalled
-          ? 'Installed but stopped'
-          : 'Not installed';
 
   useEffect(() => {
     setPromptDrafts(
@@ -830,26 +839,27 @@ export function App(): JSX.Element {
     }, 1400);
   };
 
+  const handleMicCapture = async (): Promise<void> => {
+    if (status === 'recording') {
+      await stopCaptureRef.current();
+    } else if (status === 'idle' || status === 'done' || status === 'error') {
+      await startCaptureRef.current();
+    }
+  };
+
+  const micButtonStatus = status === 'booting' || status === 'loading-model' ? 'idle' : status as 'idle' | 'recording' | 'processing' | 'done' | 'error';
+
   return (
     <main className="app-shell">
       <div className="ambient-orb ambient-orb-one" />
       <div className="ambient-orb ambient-orb-two" />
       <div className="ambient-orb ambient-orb-three" />
 
+      <BackgroundCanvas shaderType={bgShaderType} shaderColors={bgShaderColors} />
       <aside className="sidebar">
         <div className="sidebar-brand">
-          <div className="brand-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-              <path d="M12 19v3" />
-              <path d="M8 22h8" />
-            </svg>
-          </div>
-          <div>
-            <p className="brand-title">Openflow</p>
-            <p className="brand-subtitle">dictate · refine · paste</p>
-          </div>
+          <div className="brand-title">Openflow</div>
+          <div className="brand-subtitle">v{bootData?.version ?? '0.1.0'}</div>
         </div>
 
         <div className="sidebar-section">
@@ -887,6 +897,14 @@ export function App(): JSX.Element {
             <span>AI</span>
           </button>
           <button
+            className={`sidebar-nav${activeTab === 'pet' ? ' is-active' : ''}`}
+            type="button"
+            onClick={() => setActiveTab('pet')}
+          >
+            <PetIcon />
+            <span>Pet</span>
+          </button>
+          <button
             className={`sidebar-nav${activeTab === 'prompts' ? ' is-active' : ''}`}
             type="button"
             onClick={() => setActiveTab('prompts')}
@@ -919,36 +937,47 @@ export function App(): JSX.Element {
 
       <section className="workspace">
         <header className="workspace-topbar">
-          <span className="topbar-product">Openflow</span>
-          <span className="topbar-separator">/</span>
           <span className="topbar-location">{activeTabLabel}</span>
+          <div className="flex gap6">
+            <button
+              className="btn-ghost"
+              type="button"
+              onClick={() => setActiveTab('settings')}
+              style={{ background: 'none', border: 'none', color: 'var(--muted-foreground)', cursor: 'pointer', padding: '4px 8px', borderRadius: 'var(--radius-3xl)', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}
+            >
+              <svg className="ic" width="13" height="13" viewBox="0 0 24 24">
+                <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+              </svg>
+            </button>
+          </div>
         </header>
 
         <div className="workspace-scroll">
           {activeTab === 'home' ? (
             <section className="page page-home">
-              <div className="page-intro">
-                <h1 className="page-title">
-                  <span className="page-title-primary">Open</span>
-                  <span className="page-title-accent">flow</span>
-                </h1>
-                <p className="page-subtitle">
-                  Speak with Ctrl + Win. Whisper transcribes offline, Groq or local AI cleans it up, and Openflow pastes the final result back where you were typing.
-                </p>
-              </div>
-
-              <div className={`status-banner status-${status}`}>
-                <div className="status-banner-main">
-                  <div className="status-indicator">
-                    <span className="status-indicator-dot" />
+              <div className="card" style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 14 }}>
+                <MicButton status={micButtonStatus} onClick={handleMicCapture} />
+                <div>
+                  <span className="badge" style={{
+                    color: status === 'recording' ? '#f87171' : status === 'processing' ? '#fb923c' : status === 'done' ? '#4ade80' : 'rgba(255,255,255,0.4)',
+                    background: status === 'recording' ? 'rgba(239,68,68,0.09)' : status === 'processing' ? 'rgba(251,146,60,0.09)' : status === 'done' ? 'rgba(74,222,128,0.09)' : 'rgba(255,255,255,0.05)',
+                    borderColor: status === 'recording' ? 'rgba(239,68,68,0.22)' : status === 'processing' ? 'rgba(251,146,60,0.22)' : status === 'done' ? 'rgba(74,222,128,0.22)' : 'rgba(255,255,255,0.08)',
+                    fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.06em', marginBottom: 6
+                  }}>
+                    {status === 'recording' ? '● Recording' : status === 'processing' ? '◌ Processing' : status === 'done' ? '✓ Done' : 'Idle'}
+                  </span>
+                  <div style={{ fontSize: 12.5, color: 'var(--muted-foreground)', marginBottom: 5 }}>
+                    {status === 'idle' ? 'Press the mic or hold Ctrl + Win to start' :
+                     status === 'recording' ? 'Listening — release Ctrl + Win to stop' :
+                     status === 'processing' ? 'Transcribing and refining audio…' :
+                     status === 'done' ? 'Capture complete' :
+                     status === 'error' ? 'Something went wrong — check the note' :
+                     status === 'loading-model' ? 'Preparing audio capture…' : 'Ready'}
                   </div>
-                  <div>
-                    <p className="status-banner-title">{statusCopy.title}</p>
-                    <p className="status-banner-detail">{statusCopy.detail}</p>
+                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.18)' }}>
+                    Shortcut: <kbd className="keycap">Ctrl + Win</kbd>
                   </div>
-                </div>
-                <div className="status-banner-hint">
-                  {status === 'recording' || status === 'processing' ? statusCopy.hint : <>Hold <span className="keycap">Ctrl + Win</span> to dictate</>}
                 </div>
               </div>
 
@@ -962,7 +991,9 @@ export function App(): JSX.Element {
                       onClick={() => void handleCopy('home-raw', latestRawText)}
                       aria-label="Copy latest raw transcript"
                     >
-                      <CopyIcon />
+                      <svg className="ic" width="12" height="12" viewBox="0 0 24 24">
+                        <path d="M20 9H11a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V11a2 2 0 0 0-2-2z M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                      </svg>
                       <span>{copiedKey === 'home-raw' ? 'Copied' : 'Copy'}</span>
                     </button>
                   </div>
@@ -971,16 +1002,18 @@ export function App(): JSX.Element {
                   </div>
                 </article>
 
-                <article className="transcript-card transcript-card-refined">
+                <article className="transcript-card">
                   <div className="card-head">
-                    <span className="card-kicker">Refined Transcript</span>
+                    <span className="card-kicker">Refined Output</span>
                     <button
                       className={`copy-status-button${copiedKey === 'home-refined' ? ' is-copied' : ''}`}
                       type="button"
                       onClick={() => void handleCopy('home-refined', latestRefinedText)}
                       aria-label="Copy latest refined transcript"
                     >
-                      <CopyIcon />
+                      <svg className="ic" width="12" height="12" viewBox="0 0 24 24">
+                        <path d="M20 9H11a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V11a2 2 0 0 0-2-2z M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                      </svg>
                       <span>{copiedKey === 'home-refined' ? 'Copied' : 'Copy'}</span>
                     </button>
                   </div>
@@ -1001,44 +1034,26 @@ export function App(): JSX.Element {
                   <p className="card-kicker">Default Refinement Style</p>
                   <p className="panel-title">How Openflow should rewrite by default</p>
                   <p className="panel-description">Used whenever you trigger a capture with no manual override.</p>
-                  <select
-                    className="styled-select"
-                    value={settings.defaultStyle}
-                    onChange={(event) =>
-                      void handleSettingsChange({
-                        ...settings,
-                        defaultStyle: event.target.value
-                      })
-                    }
-                  >
-                    {promptFilters.map((filter) => (
-                      <option key={filter.id} value={filter.id}>
-                        {filter.label}
-                      </option>
-                    ))}
-                  </select>
+                  <SegmentedControl
+                    options={promptFilters.map((f) => f.label)}
+                    value={promptFilters.find((f) => f.id === settings.defaultStyle)?.label ?? 'Casual'}
+                    onChange={(label) => {
+                      const filter = promptFilters.find((f) => f.label === label);
+                      if (filter) void handleSettingsChange({ ...settings, defaultStyle: filter.id });
+                    }}
+                  />
                 </article>
 
                 <article className="panel-card compact-panel">
                   <p className="card-kicker">Auto-paste</p>
                   <p className="panel-title">Send the refined text back automatically</p>
                   <p className="panel-description">If disabled, Openflow still stores the capture in local history.</p>
-                  <div className="toggle-row ui-toggle-row">
-                    <span>{settings.autoPaste ? 'Enabled' : 'Disabled'}</span>
-                    <button
-                      className={`toggle-switch${settings.autoPaste ? ' is-on' : ''}`}
-                      type="button"
-                      aria-pressed={settings.autoPaste}
-                      onClick={() =>
-                        void handleSettingsChange({
-                          ...settings,
-                          autoPaste: !settings.autoPaste
-                        })
-                      }
-                    >
-                      <span />
-                    </button>
-                  </div>
+                  <ToggleSwitch
+                    checked={settings.autoPaste}
+                    onChange={(checked) => void handleSettingsChange({ ...settings, autoPaste: checked })}
+                    label=""
+                    description=""
+                  />
                 </article>
               </div>
             </section>
@@ -1084,8 +1099,10 @@ export function App(): JSX.Element {
                               type="button"
                               onClick={() => void handleCopy(`${entry.id}-raw`, entry.rawText)}
                             >
-                              <CopyIcon />
-                              {copiedKey === `${entry.id}-raw` ? 'Copied' : 'Copy'}
+                              <svg className="ic" width="11" height="11" viewBox="0 0 24 24">
+                                <path d="M20 9H11a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V11a2 2 0 0 0-2-2z M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                              </svg>
+                              {copiedKey === `${entry.id}-raw` ? 'Copied' : 'Copy raw'}
                             </button>
                           </div>
                           <p className="history-text history-text-raw">{entry.rawText || 'No transcription text captured.'}</p>
@@ -1093,14 +1110,16 @@ export function App(): JSX.Element {
 
                         <div className="history-column">
                           <div className="history-column-head">
-                            <span className="history-label history-label-refined">Refined</span>
+                            <span className="history-label">Refined</span>
                             <button
                               className={`history-copy-button${copiedKey === `${entry.id}-refined` ? ' is-copied' : ''}`}
                               type="button"
                               onClick={() => void handleCopy(`${entry.id}-refined`, entry.refinedText)}
                             >
-                              <CopyIcon />
-                              {copiedKey === `${entry.id}-refined` ? 'Copied' : 'Copy'}
+                              <svg className="ic" width="11" height="11" viewBox="0 0 24 24">
+                                <path d="M20 9H11a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V11a2 2 0 0 0-2-2z M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                              </svg>
+                              {copiedKey === `${entry.id}-refined` ? 'Copied' : 'Copy refined'}
                             </button>
                           </div>
                           <p className="history-text history-text-refined">{entry.refinedText || 'No refined text stored.'}</p>
@@ -1130,8 +1149,11 @@ export function App(): JSX.Element {
                       <p className="settings-title">Offline model and runtime</p>
                       <p className="settings-description">Choose which Whisper model Openflow should use, download models on demand, and control whether transcription prefers CPU or the bundled Vulkan runtime.</p>
                     </div>
-                    <button className="secondary-button icon-secondary-button" type="button" onClick={() => void window.voskFlow.openModelsFolder()}>
-                      <OpenFolderIcon />
+                    <button className="secondary-button" type="button" onClick={() => void window.voskFlow.openModelsFolder()}>
+                      <svg className="ic" width="13" height="13" viewBox="0 0 24 24">
+                        <path d="M3 6a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/>
+                        <path d="M3 10h18"/>
+                      </svg>
                       Open folder
                     </button>
                   </div>
@@ -1141,23 +1163,14 @@ export function App(): JSX.Element {
                       <p className="settings-title">Transcription model</p>
                       <p className="settings-description">Openflow will use the selected Whisper model for every capture.</p>
                     </div>
-                    <select
-                      className="styled-select"
-                      value={settings.offlineModel}
-                      onChange={(event) =>
-                        void handleSettingsChange({
-                          ...settings,
-                          offlineModel: event.target.value as AppSettings['offlineModel']
-                        })
-                      }
-                    >
-                      {(bootData?.modelInfo.availableModels ?? []).map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                          {option.recommended ? ' (Recommended)' : ''}
-                        </option>
-                      ))}
-                    </select>
+                    <SegmentedControl
+                      options={(bootData?.modelInfo.availableModels ?? []).map((o) => o.label)}
+                      value={selectedOfflineModel.label}
+                      onChange={(label) => {
+                        const option = (bootData?.modelInfo.availableModels ?? []).find((o) => o.label === label);
+                        if (option) void handleSettingsChange({ ...settings, offlineModel: option.value as AppSettings['offlineModel'] });
+                      }}
+                    />
                     <p className="settings-description local-model-summary">
                       {selectedOfflineModel.diskSize} · {selectedOfflineModel.accuracy} accuracy · {selectedOfflineModel.speed} speed · {selectedOfflineModel.memoryUsage} RAM
                     </p>
@@ -1168,22 +1181,14 @@ export function App(): JSX.Element {
                       <p className="settings-title">Acceleration</p>
                       <p className="settings-description">Auto prefers the bundled Vulkan runtime when present. CPU always uses the bundled CPU runtimes.</p>
                     </div>
-                    <select
-                      className="styled-select"
-                      value={settings.accelerationMode}
-                      onChange={(event) =>
-                        void handleSettingsChange({
-                          ...settings,
-                          accelerationMode: event.target.value as AppSettings['accelerationMode']
-                        })
-                      }
-                    >
-                      {ACCELERATION_MODE_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
+                    <SegmentedControl
+                      options={ACCELERATION_MODE_OPTIONS.map((o) => o.label)}
+                      value={ACCELERATION_MODE_OPTIONS.find((o) => o.value === settings.accelerationMode)?.label ?? 'Auto'}
+                      onChange={(label) => {
+                        const option = ACCELERATION_MODE_OPTIONS.find((o) => o.label === label);
+                        if (option) void handleSettingsChange({ ...settings, accelerationMode: option.value });
+                      }}
+                    />
                     <p className="settings-description local-model-summary">
                       {bootData?.modelInfo.activeBackendLabel ?? 'Unavailable'}
                       {bootData?.modelInfo.fallbackReason ? ` · ${bootData.modelInfo.fallbackReason}` : ''}
@@ -1287,22 +1292,14 @@ export function App(): JSX.Element {
                 <article className="settings-card">
                   <p className="settings-title">Refinement mode</p>
                   <p className="settings-description">Choose whether Openflow should refine with Groq or the managed local AI runtime.</p>
-                  <select
-                    className="styled-select"
-                    value={settings.refinementMode}
-                    onChange={(event) =>
-                      void handleSettingsChange({
-                        ...settings,
-                        refinementMode: event.target.value as RefinementMode
-                      })
-                    }
-                  >
-                    {REFINEMENT_MODE_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
+                  <SegmentedControl
+                    options={REFINEMENT_MODE_OPTIONS.map((o) => o.label)}
+                    value={REFINEMENT_MODE_OPTIONS.find((o) => o.value === settings.refinementMode)?.label ?? 'Groq API'}
+                    onChange={(label) => {
+                      const option = REFINEMENT_MODE_OPTIONS.find((o) => o.label === label);
+                      if (option) void handleSettingsChange({ ...settings, refinementMode: option.value as 'groq' | 'local' });
+                    }}
+                  />
                 </article>
 
                 <article className="settings-card">
@@ -1326,56 +1323,73 @@ export function App(): JSX.Element {
                   </select>
                 </article>
 
-                <article className="settings-card">
-                  <div className="settings-card-head">
-                    <div>
-                      <p className="settings-title">Groq API key</p>
-                      <p className="settings-description">Stored locally and used only for Groq cleanup requests and automatic fallback from local AI.</p>
+                {settings.refinementMode === 'groq' && (
+                  <article className="settings-card">
+                    <div className="settings-card-head">
+                      <div>
+                        <p className="settings-title">Groq API key</p>
+                        <p className="settings-description">Stored locally and used only for Groq cleanup requests and automatic fallback from local AI.</p>
+                      </div>
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        onClick={() => void window.voskFlow.openGroqApiKeys()}
+                      >
+                        Get Groq API key
+                      </button>
                     </div>
-                    <button
-                      className="secondary-button"
-                      type="button"
-                      onClick={() => void window.voskFlow.openGroqApiKeys()}
-                    >
-                      Get Groq API key
-                    </button>
-                  </div>
-                  <div className="inline-input-row">
+                    <div className="inline-input-row">
+                      <input
+                        className="text-input"
+                        type={showApiKey ? 'text' : 'password'}
+                        placeholder="gsk_..."
+                        value={settings.groqApiKey}
+                        onChange={(event) =>
+                          void handleSettingsChange({
+                            ...settings,
+                            groqApiKey: event.target.value
+                          })
+                        }
+                      />
+                      <button className="eye-button" type="button" onClick={() => setShowApiKey((value) => !value)} aria-label="Toggle API key visibility">
+                        {showApiKey ? (
+                          <svg className="ic" width="14" height="14" viewBox="0 0 24 24">
+                            <path d="M2 12s4-8 10-8 10 8 10 8-4 8-10 8S2 12 2 12Z"/>
+                            <circle cx="12" cy="12" r="3"/>
+                          </svg>
+                        ) : (
+                          <svg className="ic" width="14" height="14" viewBox="0 0 24 24">
+                            <path d="M3 3l18 18"/>
+                            <path d="M10.6 10.7A3 3 0 0 0 14 14"/>
+                            <path d="M9.4 5.5A10.2 10.2 0 0 1 12 5c6 0 10 7 10 7a17.6 17.6 0 0 1-4 4.9"/>
+                            <path d="M6.7 6.7A17.4 17.4 0 0 0 2 12s4 7 10 7a9.7 9.7 0 0 0 4-.9"/>
+                          </svg>
+                        )}
+                      </button>
+                    </div>
+                  </article>
+                )}
+
+                {settings.refinementMode === 'groq' && (
+                  <article className="settings-card">
+                    <p className="settings-title">Hosted model ID</p>
+                    <p className="settings-description">The Groq model Openflow uses when Groq refinement is selected or used as a fallback.</p>
                     <input
                       className="text-input"
-                      type={showApiKey ? 'text' : 'password'}
-                      placeholder="gsk_..."
-                      value={settings.groqApiKey}
+                      type="text"
+                      placeholder={GROQ_REFINEMENT_MODEL}
+                      value={settings.refinementModel}
                       onChange={(event) =>
                         void handleSettingsChange({
                           ...settings,
-                          groqApiKey: event.target.value
+                          refinementModel: event.target.value
                         })
                       }
                     />
-                    <button className="icon-button eye-button" type="button" onClick={() => setShowApiKey((value) => !value)} aria-label="Toggle API key visibility">
-                      <EyeIcon visible={showApiKey} />
-                    </button>
-                  </div>
-                </article>
+                  </article>
+                )}
 
-                <article className="settings-card">
-                  <p className="settings-title">Hosted model ID</p>
-                  <p className="settings-description">The Groq model Openflow uses when Groq refinement is selected or used as a fallback.</p>
-                  <input
-                    className="text-input"
-                    type="text"
-                    placeholder={GROQ_REFINEMENT_MODEL}
-                    value={settings.refinementModel}
-                    onChange={(event) =>
-                      void handleSettingsChange({
-                        ...settings,
-                        refinementModel: event.target.value
-                      })
-                    }
-                  />
-                </article>
-
+                {settings.refinementMode === 'local' && (
                 <article className="settings-card">
                   <div className="settings-card-head">
                     <div>
@@ -1404,59 +1418,66 @@ export function App(): JSX.Element {
                         Pick the model Openflow should install and run for local refinement.
                       </p>
                     </div>
-                    <select
-                      className="styled-select"
-                      value={settings.localRefinementModel}
-                      onChange={(event) =>
-                        void handleSettingsChange({
-                          ...settings,
-                          localRefinementModel: event.target.value
-                        })
-                      }
-                      disabled={localAiBusyAction !== null}
-                    >
-                      {(localAiInfo?.availableModels ?? []).map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                          {option.recommended ? ' (Recommended)' : ''}
-                        </option>
-                      ))}
-                    </select>
+                    <SegmentedControl
+                      options={(bootData?.localAiInfo?.availableModels ?? []).map((o) => o.label)}
+                      value={(bootData?.localAiInfo?.availableModels ?? []).find((o) => o.value === settings.localRefinementModel)?.label ?? ''}
+                      onChange={(label) => {
+                        const option = (bootData?.localAiInfo?.availableModels ?? []).find((o) => o.label === label);
+                        if (option) void handleSettingsChange({ ...settings, localRefinementModel: option.value });
+                      }}
+                    />
                     <p className="settings-description local-model-summary">
-                      {(localAiInfo?.modelSummary ?? 'Choose a local cleanup model.')} {' '}
-                      <span className="local-model-size">{localAiInfo?.modelSize ?? ''}</span>
+                      {bootData?.localAiInfo?.modelSummary ?? 'Choose a local cleanup model.'}{' '}
+                      <span className="local-model-size">{bootData?.localAiInfo?.modelSize ?? ''}</span>
                     </p>
                   </div>
 
                   <div className="runtime-grid">
-                    <div className={`runtime-card${localAiInfo?.runtimeInstalled ? ' is-ready' : ' is-missing'}`}>
+                    <div className={`runtime-card${bootData?.localAiInfo?.runtimeInstalled ? ' is-ready' : ' is-missing'}`}>
                       <span className="runtime-label">Runtime</span>
-                      <p className="runtime-title">{localAiInfo?.runtimeInstalled ? 'llama.cpp installed' : 'Runtime not installed'}</p>
-                      <p className="runtime-copy">{localAiInfo?.runtimeInstalled ? 'Managed locally by Openflow' : 'Download once to enable local cleanup'}</p>
-                      <p className="runtime-meta runtime-path">{localAiInfo?.runtimePath ?? 'Loading runtime path...'}</p>
+                      <p className="runtime-title">{bootData?.localAiInfo?.runtimeInstalled ? 'llama.cpp installed' : 'Runtime not installed'}</p>
+                      <p className="runtime-copy">{bootData?.localAiInfo?.runtimeInstalled ? 'Managed locally by Openflow' : 'Download once to enable local cleanup'}</p>
+                      <p className="runtime-meta runtime-path">{bootData?.localAiInfo?.runtimePath ?? 'Loading runtime path...'}</p>
                     </div>
-                    <div className={`runtime-card${localAiInfo?.modelInstalled ? ' is-ready' : ' is-missing'}`}>
+                    <div className={`runtime-card${bootData?.localAiInfo?.modelInstalled ? ' is-ready' : ' is-missing'}`}>
                       <span className="runtime-label">Model</span>
-                      <p className="runtime-title">{localAiInfo?.modelLabel ?? 'Loading model info...'}</p>
-                      <p className="runtime-copy">{localAiInfo?.modelInstalled ? 'Installed and available for cleanup' : 'Needs download before local refinement can run'}</p>
-                      <p className="runtime-meta runtime-path">{localAiInfo?.modelPath ?? 'Loading model path...'}</p>
+                      <p className="runtime-title">{bootData?.localAiInfo?.modelLabel ?? 'Loading model info...'}</p>
+                      <p className="runtime-copy">{bootData?.localAiInfo?.modelInstalled ? 'Installed and available for cleanup' : 'Needs download before local refinement can run'}</p>
+                      <p className="runtime-meta runtime-path">{bootData?.localAiInfo?.modelPath ?? 'Loading model path...'}</p>
                     </div>
                   </div>
 
                   <div className="runtime-grid">
-                    <div className={`runtime-card${localAiInfo?.healthy ? ' is-ready' : ' is-missing'}`}>
+                    <div className={`runtime-card${bootData?.localAiInfo?.healthy ? ' is-ready' : ' is-missing'}`}>
                       <span className="runtime-label">Health</span>
-                      <p className="runtime-title">{localAiStatusText}</p>
+                      <p className="runtime-title">
+                        {!bootData?.localAiInfo
+                          ? 'Loading local AI status...'
+                          : bootData.localAiInfo.downloadState
+                            ? bootData.localAiInfo.downloadState.phase === 'extracting'
+                              ? `Extracting ${bootData.localAiInfo.downloadState.label}`
+                              : `Downloading ${bootData.localAiInfo.downloadState.label}`
+                          : bootData.localAiInfo.healthy
+                            ? bootData.localAiInfo.runningModelFileName &&
+                              bootData.localAiInfo.runningModelFileName !== bootData.localAiInfo.selectedModelValue
+                              ? 'Running another model'
+                              : 'Running and ready'
+                            : bootData.localAiInfo.serverRunning
+                              ? 'Starting up'
+                              : bootData.localAiInfo.runtimeInstalled && bootData.localAiInfo.modelInstalled
+                                ? 'Installed but stopped'
+                                : 'Not installed'}
+                      </p>
                       <p className="runtime-copy">
-                        {localAiInfo?.fallbackToGroqAvailable
+                        {bootData?.localAiInfo?.fallbackToGroqAvailable
                           ? 'If local AI is unavailable, Openflow can fall back to Groq automatically.'
                           : 'If local AI is unavailable and no Groq key is set, Openflow falls back to the raw transcript.'}
                       </p>
-                      <p className="runtime-meta runtime-path">{localAiInfo?.serverUrl ?? 'Loading server URL...'}</p>
-                      {localAiInfo?.runningModelFileName &&
-                      localAiInfo.runningModelFileName !== localAiInfo.selectedModelValue ? (
+                      <p className="runtime-meta runtime-path">{bootData?.localAiInfo?.serverUrl ?? 'Loading server URL...'}</p>
+                      {bootData?.localAiInfo?.runningModelFileName &&
+                      bootData.localAiInfo.runningModelFileName !== bootData.localAiInfo.selectedModelValue ? (
                         <p className="runtime-meta runtime-warning">
-                          Running model: {localAiInfo.runningModelFileName}. Restart local AI to switch to the newly selected model.
+                          Running model: {bootData.localAiInfo.runningModelFileName}. Restart local AI to switch to the newly selected model.
                         </p>
                       ) : null}
                     </div>
@@ -1477,7 +1498,7 @@ export function App(): JSX.Element {
                           }
                           disabled={localAiBusyAction !== null}
                         >
-                          {localAiBusyAction === 'install-runtime' ? 'Installing runtime…' : localAiInfo?.runtimeInstalled ? 'Reinstall runtime' : 'Install runtime'}
+                          {localAiBusyAction === 'install-runtime' ? 'Installing…' : 'Install runtime'}
                         </button>
                         <button
                           className="secondary-button"
@@ -1491,89 +1512,50 @@ export function App(): JSX.Element {
                           }
                           disabled={localAiBusyAction !== null}
                         >
-                          {localAiBusyAction === 'install-model' ? 'Installing model…' : localAiInfo?.modelInstalled ? 'Reinstall model' : 'Install model'}
+                          {localAiBusyAction === 'install-model' ? 'Installing…' : 'Install model'}
                         </button>
-                        {localAiInfo?.healthy ? (
-                          <button
-                            className="secondary-button"
-                            type="button"
-                            onClick={() =>
-                              void runLocalAiAction(
-                                'stop-local-ai',
-                                () => window.voskFlow.stopLocalAi(),
-                                'Local AI server stopped.'
-                              )
-                            }
-                            disabled={localAiBusyAction !== null}
-                          >
-                            {localAiBusyAction === 'stop-local-ai' ? 'Stopping…' : 'Stop local AI'}
-                          </button>
-                        ) : (
-                          <button
-                            className="secondary-button"
-                            type="button"
-                            onClick={() =>
-                              void runLocalAiAction(
-                                'start-local-ai',
-                                () => window.voskFlow.startLocalAi(),
-                                'Local AI server is ready.'
-                              )
-                            }
-                            disabled={
-                              localAiBusyAction !== null ||
-                              !localAiInfo?.runtimeInstalled ||
-                              !localAiInfo?.modelInstalled
-                            }
-                          >
-                            {localAiBusyAction === 'start-local-ai' ? 'Starting…' : 'Start local AI'}
-                          </button>
-                        )}
+                        <button
+                          className="secondary-button"
+                          type="button"
+                          onClick={() =>
+                            void runLocalAiAction(
+                              'start-local-ai',
+                              () => window.voskFlow.startLocalAi(),
+                              'Local AI server started.'
+                            )
+                          }
+                          disabled={localAiBusyAction !== null}
+                        >
+                          {localAiBusyAction === 'start-local-ai' ? 'Starting…' : 'Start server'}
+                        </button>
+                        <button
+                          className="secondary-button"
+                          type="button"
+                          onClick={() =>
+                            void runLocalAiAction(
+                              'stop-local-ai',
+                              () => window.voskFlow.stopLocalAi(),
+                              'Local AI server stopped.'
+                            )
+                          }
+                          disabled={localAiBusyAction !== null}
+                        >
+                          {localAiBusyAction === 'stop-local-ai' ? 'Stopping…' : 'Stop server'}
+                        </button>
                       </div>
                     </div>
                   </div>
 
-                  {localAiInfo?.downloadState ? (
-                    <div className="download-status-card">
-                      <div className="download-status-head">
-                        <span className="runtime-label">Transfer</span>
-                        <span className="download-status-percent">
-                          {localAiInfo.downloadState.percent !== undefined
-                            ? `${localAiInfo.downloadState.percent}%`
-                            : localAiInfo.downloadState.phase === 'extracting'
-                              ? 'Extracting'
-                              : 'Downloading'}
-                        </span>
-                      </div>
-                      <p className="runtime-title">{localAiInfo.downloadState.label}</p>
-                      <p className="runtime-copy">{localAiInfo.downloadState.detail}</p>
-                      <div className="download-progress-track" aria-hidden="true">
-                        <span
-                          className="download-progress-fill"
-                          style={{
-                            width:
-                              localAiInfo.downloadState.percent !== undefined
-                                ? `${localAiInfo.downloadState.percent}%`
-                                : localAiInfo.downloadState.phase === 'extracting'
-                                  ? '100%'
-                                  : '18%'
-                          }}
-                        />
-                      </div>
-                    </div>
-                  ) : null}
-
-                  {localAiInfo?.lastError ? <div className="history-error">{localAiInfo.lastError}</div> : null}
-
                   <div className="cleanup-grid">
                     <div className="runtime-card is-missing">
-                      <span className="runtime-label">Local AI runtime</span>
-                      <p className="runtime-title">Remove runtime files</p>
-                      <p className="runtime-copy">Deletes the downloaded llama.cpp runtime and stops the local server if it is running.</p>
+                      <span className="runtime-label">Cleanup</span>
+                      <p className="runtime-title">Remove local AI runtime</p>
+                      <p className="runtime-copy">Deletes the downloaded llama.cpp runtime files.</p>
                       <button
                         className="danger-button"
                         type="button"
                         onClick={() =>
-                          void runCleanupAction(
+                          void runLocalAiAction(
                             'cleanup-runtime',
                             () => window.voskFlow.removeLocalAiRuntime(),
                             'Local AI runtime removed.'
@@ -1584,16 +1566,15 @@ export function App(): JSX.Element {
                         {localAiBusyAction === 'cleanup-runtime' ? 'Removing runtime…' : 'Remove runtime'}
                       </button>
                     </div>
-
                     <div className="runtime-card is-missing">
-                      <span className="runtime-label">Local AI models</span>
-                      <p className="runtime-title">Remove downloaded model files</p>
-                      <p className="runtime-copy">Deletes every downloaded local cleanup model and stops the local server first if needed.</p>
+                      <span className="runtime-label">Cleanup</span>
+                      <p className="runtime-title">Remove local AI models</p>
+                      <p className="runtime-copy">Deletes all downloaded local refinement models.</p>
                       <button
                         className="danger-button"
                         type="button"
                         onClick={() =>
-                          void runCleanupAction(
+                          void runLocalAiAction(
                             'cleanup-models',
                             () => window.voskFlow.removeLocalAiModels(),
                             'Local AI models removed.'
@@ -1605,9 +1586,46 @@ export function App(): JSX.Element {
                       </button>
                     </div>
                   </div>
+
+                  {bootData?.localAiInfo?.downloadState ? (
+                    <div className="download-status-card">
+                      <div className="download-status-head">
+                        <span className="runtime-label">
+                          {bootData.localAiInfo.downloadState.target === 'runtime' ? 'Runtime' : 'Model'}
+                        </span>
+                        <span className="download-status-percent">
+                          {bootData.localAiInfo.downloadState.percent !== undefined
+                            ? `${bootData.localAiInfo.downloadState.percent}%`
+                            : bootData.localAiInfo.downloadState.phase === 'extracting'
+                              ? 'Extracting'
+                              : 'Downloading'}
+                        </span>
+                      </div>
+                      <p className="runtime-title">{bootData.localAiInfo.downloadState.label}</p>
+                      <p className="runtime-copy">{bootData.localAiInfo.downloadState.detail}</p>
+                      <div className="download-progress-track" aria-hidden="true">
+                        <span
+                          className="download-progress-fill"
+                          style={{
+                            width:
+                              bootData.localAiInfo.downloadState.percent !== undefined
+                                ? `${bootData.localAiInfo.downloadState.percent}%`
+                                : bootData.localAiInfo.downloadState.phase === 'extracting'
+                                  ? '100%'
+                                  : '18%'
+                          }}
+                        />
+                      </div>
+                    </div>
+                  ) : null}
                 </article>
+                )}
               </div>
             </section>
+          ) : null}
+
+          {activeTab === 'pet' ? (
+            <PetTab settings={settings} onSettingsChange={handleSettingsChange} />
           ) : null}
 
           {activeTab === 'prompts' ? (
@@ -1622,80 +1640,76 @@ export function App(): JSX.Element {
                 </button>
               </div>
 
-              <div className="settings-stack">
+              <div className="compact-card-list">
+                <div className="compact-card">
+                  <div className="compact-card-meta">
+                    <span className="compact-card-label">Default style</span>
+                  </div>
+                  <SegmentedControl
+                    options={promptFilters.map((f) => f.label)}
+                    value={promptFilters.find((f) => f.id === settings.defaultStyle)?.label ?? 'Casual'}
+                    onChange={(label) => {
+                      const filter = promptFilters.find((f) => f.label === label);
+                      if (filter) void handleSettingsChange({ ...settings, defaultStyle: filter.id });
+                    }}
+                  />
+                </div>
+
                 {promptFilters.map((filter) => (
-                  <article key={filter.id} className="settings-card">
-                    <div className="settings-card-head">
-                      <div>
-                        <p className="settings-title">{filter.builtIn ? 'Built-in filter' : 'Custom filter'}</p>
-                        <p className="settings-description">
-                          {filter.builtIn
-                            ? 'This filter ships with Openflow, but you can still customize its prompt.'
-                            : 'This is a user-created filter. You can rename it, edit the prompt, or remove it.'}
-                        </p>
-                      </div>
-                      <div className="prompt-card-actions">
+                  <div key={filter.id} className={`compact-card${settings.defaultStyle === filter.id ? ' is-default' : ''}`}>
+                    <div className="compact-card-meta">
+                      <span className="compact-card-label">{filter.label}</span>
+                      <span className="compact-card-badge">{filter.builtIn ? 'built-in' : 'custom'}</span>
+                      <div className="compact-card-actions">
                         <button
-                          className="secondary-button"
+                          className="btn-mini"
                           type="button"
                           onClick={() => void savePromptFilter(filter.id)}
                           disabled={!hasPromptDraftChanges(filter)}
                         >
                           Save
                         </button>
-                        <button
-                          className={`secondary-button${settings.defaultStyle === filter.id ? ' is-active' : ''}`}
-                          type="button"
-                          onClick={() =>
-                            void handleSettingsChange({
-                              ...settings,
-                              defaultStyle: filter.id
-                            })
-                          }
-                        >
-                          {settings.defaultStyle === filter.id ? 'Default filter' : 'Set as default'}
-                        </button>
                         {!filter.builtIn ? (
                           <button
-                            className="danger-button prompt-remove-button"
+                            className="btn-mini btn-mini-danger"
                             type="button"
                             onClick={() => void removePromptFilter(filter.id)}
                           >
-                            Remove filter
+                            Remove
                           </button>
                         ) : null}
                       </div>
                     </div>
 
-                    <div className="prompt-editor-grid">
-                      <label className="prompt-field">
-                        <span className="runtime-label">Filter name</span>
+                    <div className="compact-card-grid">
+                      <div className="compact-card-field">
+                        <span className="compact-field-label">Name</span>
                         <input
-                          className="text-input"
+                          className="compact-card-input"
                           type="text"
                           value={promptDrafts[filter.id]?.label ?? filter.label}
                           onChange={(event) =>
                             updatePromptDraft(filter.id, { label: event.target.value })
                           }
                         />
-                      </label>
+                      </div>
 
-                      <label className="prompt-field prompt-field-wide">
-                        <span className="runtime-label">Prompt instruction</span>
+                      <div className="compact-card-field compact-card-field-wide">
+                        <span className="compact-field-label">Instruction</span>
                         <textarea
-                          className="prompt-textarea"
+                          className="compact-card-textarea"
                           value={promptDrafts[filter.id]?.instruction ?? filter.instruction}
                           onChange={(event) =>
                             updatePromptDraft(filter.id, { instruction: event.target.value })
                           }
                         />
-                      </label>
+                      </div>
                     </div>
 
                     {promptErrors[filter.id] ? (
-                      <div className="history-error prompt-error-banner">{promptErrors[filter.id]}</div>
+                      <div className="compact-card-error">{promptErrors[filter.id]}</div>
                     ) : null}
-                  </article>
+                  </div>
                 ))}
               </div>
             </section>
@@ -1783,6 +1797,126 @@ export function App(): JSX.Element {
 
               <div className="settings-stack">
                 <article className="settings-card">
+                  <p className="settings-title">Accent theme</p>
+                  <p className="settings-description">Choose the accent color used for active controls and highlights.</p>
+                  <div className="theme-grid">
+                    {[
+                      { id: 'default', label: 'Default', color: '#7878ff' },
+                      { id: 'violet', label: 'Violet', color: '#a882ff' },
+                      { id: 'rose', label: 'Rose', color: '#ff6e82' },
+                      { id: 'emerald', label: 'Emerald', color: '#3cd28c' },
+                      { id: 'amber', label: 'Amber', color: '#fbb43c' },
+                      { id: 'sky', label: 'Sky', color: '#38beff' },
+                      { id: 'mono', label: 'Mono', color: '#c8c8c8' }
+                    ].map((theme) => (
+                      <button
+                        key={theme.id}
+                        className={`theme-swatch${accentTheme === theme.id ? ' is-active' : ''}`}
+                        type="button"
+                        onClick={() => {
+                          setAccentTheme(theme.id);
+                          void handleSettingsChange({ ...settings, accentTheme: theme.id });
+                        }}
+                        aria-label={theme.label}
+                      >
+                        <span className="theme-swatch-box" style={{ background: theme.color }} />
+                        <span className="theme-swatch-label">{theme.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </article>
+
+                <article className="settings-card">
+                  <p className="settings-title">Background</p>
+                  <p className="settings-description">Choose the animated canvas background style for the app shell.</p>
+                  <SegmentedControl
+                    options={['On', 'Minimal', 'Off']}
+                    value={backgroundStyle === 'streaks' ? 'On' : backgroundStyle === 'minimal' ? 'Minimal' : 'Off'}
+                    onChange={(label) => {
+                      const value = label === 'On' ? 'streaks' : label === 'Minimal' ? 'minimal' : 'off';
+                      setBackgroundStyle(value);
+                      void handleSettingsChange({ ...settings, backgroundStyle: value });
+                    }}
+                  />
+                </article>
+
+                <article className="settings-card">
+                  <p className="settings-title">Background effect</p>
+                  <p className="settings-description">Choose the animated shader effect and color scheme for the canvas background.</p>
+                  <SegmentedControl
+                    options={Object.values(SHADER_PRESETS).map((s) => s.label)}
+                    value={SHADER_PRESETS[bgShaderType]?.label ?? 'Flowing Gradient'}
+                    onChange={(label) => {
+                      const entry = Object.entries(SHADER_PRESETS).find(([, v]) => v.label === label);
+                      if (!entry) return;
+                      const [typeKey] = entry;
+                      const firstPreset = Object.entries(SHADER_PRESETS[typeKey].presets)[0];
+                      setBgShaderType(typeKey);
+                      setBgShaderPreset(firstPreset[0]);
+                      const colors = firstPreset[1].colors;
+                      setBgShaderColors(colors);
+                      setBgCustomColors([]);
+                      void handleSettingsChange({ ...settings, bgShaderType: typeKey, bgShaderColors: JSON.stringify(colors) });
+                    }}
+                  />
+                  <div className="theme-grid" style={{ marginTop: 12 }}>
+                    {Object.entries(SHADER_PRESETS[bgShaderType]?.presets ?? {}).map(([key, preset]) => (
+                      <button
+                        key={key}
+                        className={`theme-swatch${bgShaderPreset === key ? ' is-active' : ''}`}
+                        type="button"
+                        onClick={() => {
+                          setBgShaderPreset(key);
+                          setBgShaderColors(preset.colors);
+                          setBgCustomColors([]);
+                          void handleSettingsChange({ ...settings, bgShaderColors: JSON.stringify(preset.colors) });
+                        }}
+                        aria-label={preset.label}
+                      >
+                        <span className="theme-swatch-box" style={{ background: preset.colors[0] }} />
+                        <span className="theme-swatch-label">{preset.label}</span>
+                      </button>
+                    ))}
+                    <button
+                      className={`theme-swatch${bgShaderPreset === 'custom' ? ' is-active' : ''}`}
+                      type="button"
+                      onClick={() => {
+                        setBgShaderPreset('custom');
+                        setBgCustomColors([...bgShaderColors]);
+                      }}
+                      aria-label="Custom"
+                    >
+                      <span className="theme-swatch-box" style={{ background: 'linear-gradient(135deg, #ff0000, #00ff00, #0000ff)', border: '1px dashed var(--muted-foreground)' }} />
+                      <span className="theme-swatch-label">Custom</span>
+                    </button>
+                  </div>
+                  {bgShaderPreset === 'custom' && bgCustomColors.length > 0 && (
+                    <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                      {bgCustomColors.map((color, i) => (
+                        <label key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--muted-foreground)' }}>
+                          {String.fromCharCode(65 + i)}
+                          <input
+                            type="color"
+                            value={color}
+                            onChange={(e) => {
+                              const next = [...bgCustomColors];
+                              next[i] = e.target.value;
+                              setBgCustomColors(next);
+                              setBgShaderColors(next);
+                              setBgShaderPreset('custom');
+                            }}
+                            onBlur={() => {
+                              void handleSettingsChange({ ...settings, bgShaderColors: JSON.stringify(bgShaderColors) });
+                            }}
+                            style={{ width: 36, height: 36, border: 'none', borderRadius: 8, background: 'none', cursor: 'pointer' }}
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </article>
+
+                <article className="settings-card">
                   <p className="settings-title">Vocabulary</p>
                   <p className="settings-description">Names, brands, and technical terms to preserve exactly when the transcript implies them.</p>
                   <div className="vocabulary-editor">
@@ -1821,44 +1955,86 @@ export function App(): JSX.Element {
                 </article>
 
                 <article className="settings-card">
-                  <p className="settings-title">Auto-paste</p>
-                  <p className="settings-description">Paste the refined output back into the active app automatically after processing.</p>
-                  <div className="toggle-row ui-toggle-row">
-                    <span>{settings.autoPaste ? 'Paste after refining' : 'Keep captures in history only'}</span>
-                    <button
-                      className={`toggle-switch${settings.autoPaste ? ' is-on' : ''}`}
-                      type="button"
-                      aria-pressed={settings.autoPaste}
-                      onClick={() =>
-                        void handleSettingsChange({
-                          ...settings,
-                          autoPaste: !settings.autoPaste
-                        })
-                      }
-                    >
-                      <span />
-                    </button>
-                  </div>
+                  <ToggleSwitch
+                    checked={settings.autoPaste}
+                    onChange={(checked) => void handleSettingsChange({ ...settings, autoPaste: checked })}
+                    label="Auto-paste"
+                    description="Paste the refined output back into the active app automatically after processing."
+                  />
                 </article>
 
                 <article className="settings-card">
-                  <p className="settings-title">Launch at Startup</p>
-                  <p className="settings-description">Open Openflow automatically when you sign in to Windows.</p>
-                  <div className="toggle-row ui-toggle-row">
-                    <span>{settings.launchAtStartup ? 'Open at login is enabled' : 'Open at login is disabled'}</span>
-                    <button
-                      className={`toggle-switch${settings.launchAtStartup ? ' is-on' : ''}`}
-                      type="button"
-                      aria-pressed={settings.launchAtStartup}
-                      onClick={() =>
-                        void handleSettingsChange({
-                          ...settings,
-                          launchAtStartup: !settings.launchAtStartup
-                        })
-                      }
-                    >
-                      <span />
-                    </button>
+                  <ToggleSwitch
+                    checked={settings.launchAtStartup}
+                    onChange={(checked) => void handleSettingsChange({ ...settings, launchAtStartup: checked })}
+                    label="Launch at Startup"
+                    description="Open Openflow automatically when you sign in to Windows."
+                  />
+                </article>
+
+                <article className="settings-card">
+                  <p className="settings-title">Sounds</p>
+                  <div className="sound-row">
+                    <div className="sound-field">
+                      <p className="settings-description">Capture start</p>
+                      <div className="sound-controls">
+                        <select
+                          className="styled-select sound-select"
+                          value={settings.soundCaptureStart}
+                          onChange={(event) =>
+                            void handleSettingsChange({
+                              ...settings,
+                              soundCaptureStart: event.target.value as CaptureSoundId
+                            })
+                          }
+                        >
+                          {CAPTURE_SOUND_OPTIONS.map((o) => (
+                            <option key={o.id} value={o.id}>{o.label}</option>
+                          ))}
+                        </select>
+                        <button
+                          className="secondary-button sound-preview-btn"
+                          type="button"
+                          disabled={settings.soundCaptureStart === 'none'}
+                          onClick={() => {
+                            const fn = CAPTURE_FN_MAP[settings.soundCaptureStart];
+                            if (fn) fn();
+                          }}
+                        >
+                          Preview
+                        </button>
+                      </div>
+                    </div>
+                    <div className="sound-field">
+                      <p className="settings-description">Paste done</p>
+                      <div className="sound-controls">
+                        <select
+                          className="styled-select sound-select"
+                          value={settings.soundPasteDone}
+                          onChange={(event) =>
+                            void handleSettingsChange({
+                              ...settings,
+                              soundPasteDone: event.target.value as PasteSoundId
+                            })
+                          }
+                        >
+                          {PASTE_SOUND_OPTIONS.map((o) => (
+                            <option key={o.id} value={o.id}>{o.label}</option>
+                          ))}
+                        </select>
+                        <button
+                          className="secondary-button sound-preview-btn"
+                          type="button"
+                          disabled={settings.soundPasteDone === 'none'}
+                          onClick={() => {
+                            const fn = PASTE_FN_MAP[settings.soundPasteDone];
+                            if (fn) fn();
+                          }}
+                        >
+                          Preview
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </article>
 
@@ -1871,13 +2047,9 @@ export function App(): JSX.Element {
                   </div>
                 </article>
 
-                <article className="settings-card">
-                  <div className="settings-card-head">
-                    <div>
-                      <p className="settings-title">Cleanup</p>
-                      <p className="settings-description">Reset saved app data or clear every downloaded Openflow asset in one step.</p>
-                    </div>
-                  </div>
+                <article className="settings-card danger-zone">
+                  <p className="settings-title">Cleanup</p>
+                  <p className="settings-description">Reset saved app data or clear every downloaded Openflow asset in one step.</p>
 
                   <div className="cleanup-grid">
                     <div className="runtime-card is-missing">

@@ -41,6 +41,39 @@ export type OverlayStatus =
   | 'done'
   | 'error';
 
+export type PetAnimation = 'idle' | 'running' | 'running-left' | 'running-right' | 'waiting' | 'jumping' | 'review' | 'failed' | 'waving';
+
+export interface PetDefinition {
+  id: string;
+  displayName: string;
+  builtIn?: boolean;
+}
+
+export type CaptureSoundId = 'none' | 'pop' | 'click' | 'rising' | 'blip' | 'tap' | 'whoosh' | 'pulse';
+export type PasteSoundId = 'none' | 'chime' | 'ding' | 'ascend' | 'descend' | 'sparkle' | 'chord' | 'confirm';
+
+export const CAPTURE_SOUND_OPTIONS: { id: CaptureSoundId; label: string }[] = [
+  { id: 'none', label: 'None' },
+  { id: 'pop', label: 'Pop' },
+  { id: 'click', label: 'Click' },
+  { id: 'rising', label: 'Rising' },
+  { id: 'blip', label: 'Blip' },
+  { id: 'tap', label: 'Tap' },
+  { id: 'whoosh', label: 'Whoosh' },
+  { id: 'pulse', label: 'Pulse' },
+];
+
+export const PASTE_SOUND_OPTIONS: { id: PasteSoundId; label: string }[] = [
+  { id: 'none', label: 'None' },
+  { id: 'chime', label: 'Chime' },
+  { id: 'ding', label: 'Ding' },
+  { id: 'ascend', label: 'Ascend' },
+  { id: 'descend', label: 'Descend' },
+  { id: 'sparkle', label: 'Sparkle' },
+  { id: 'chord', label: 'Chord' },
+  { id: 'confirm', label: 'Confirm' },
+];
+
 export interface AppSettings {
   refinementMode: RefinementMode;
   groqApiKey: string;
@@ -53,6 +86,13 @@ export interface AppSettings {
   autoPaste: boolean;
   launchAtStartup: boolean;
   vocabulary: string[];
+  accentTheme: string;
+  backgroundStyle: string;
+  bgShaderType: string;
+  bgShaderColors: string;
+  petSelection: string;
+  soundCaptureStart: CaptureSoundId;
+  soundPasteDone: PasteSoundId;
 }
 
 export interface HistoryEntry {
@@ -204,7 +244,14 @@ export const DEFAULT_SETTINGS: AppSettings = {
   promptFilters: [],
   autoPaste: true,
   launchAtStartup: false,
-  vocabulary: []
+  vocabulary: [],
+  accentTheme: 'default',
+  backgroundStyle: 'streaks',
+  bgShaderType: 'plasma',
+  bgShaderColors: JSON.stringify(['#2A181E', '#000000']),
+  petSelection: 'yorha-sit-2b',
+  soundCaptureStart: 'pop',
+  soundPasteDone: 'chime'
 };
 
 export const LOCAL_REFINEMENT_MODEL_OPTIONS: LocalRefinementModelOption[] = [

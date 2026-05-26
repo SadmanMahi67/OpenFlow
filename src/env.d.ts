@@ -4,6 +4,8 @@ import type {
   AppSettings,
   BootstrapPayload,
   OverlayState,
+  PetAnimation,
+  PetDefinition,
   ProcessTranscriptRequest,
   ProcessTranscriptResponse
 } from './shared/types';
@@ -20,6 +22,7 @@ declare global {
       downloadOfflineModel: (modelId: string) => Promise<BootstrapPayload>;
       removeOfflineModel: (modelId: string) => Promise<BootstrapPayload>;
       openGroqApiKeys: () => Promise<void>;
+    openUrl: (url: string) => Promise<void>;
       installLocalAiRuntime: () => Promise<BootstrapPayload>;
       installLocalAiModel: () => Promise<BootstrapPayload>;
       startLocalAi: () => Promise<BootstrapPayload>;
@@ -34,6 +37,13 @@ declare global {
       reportEmptyCapture: () => Promise<void>;
       onRecordingCommand: (listener: (command: 'start' | 'stop') => void) => () => void;
       onOverlayState: (listener: (state: OverlayState) => void) => () => void;
+      onPetAnimation: (listener: (anim: PetAnimation) => void) => () => void;
+      onPetSelectionChanged: (listener: (petId: string) => void) => () => void;
+      setPetBounds: (bounds: { x: number; y: number; width: number; height: number }) => Promise<void>;
+      listAvailablePets: () => Promise<PetDefinition[]>;
+      importPetFromZip: () => Promise<string | null>;
+      removePet: (petId: string) => Promise<void>;
+      getPetGifUrl: (petId: string, anim: PetAnimation) => Promise<string>;
     };
   }
 }

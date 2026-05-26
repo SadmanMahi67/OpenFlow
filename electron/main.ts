@@ -4,8 +4,11 @@ import {
   Tray,
   app,
   clipboard,
+  dialog,
   ipcMain,
   nativeImage,
+  net,
+  protocol,
   screen,
   session,
   shell
@@ -40,6 +43,8 @@ import {
   type ModelInfo,
   type OfflineModelId,
   type OverlayState,
+  type PetAnimation,
+  type PetDefinition,
   type PromptFilter,
   type ProcessTranscriptRequest,
   type ProcessTranscriptResponse,
@@ -211,6 +216,36 @@ function getOfflineModelPaths(modelId: OfflineModelId): { userPath: string } {
 
 function getVadModelPath(): string {
   return path.join(getBundledWhisperModelsDirectory(), 'ggml-silero-v6.2.0.bin');
+}
+
+function getPetsDirectory(): string {
+  return path.join(app.getPath('userData'), 'pets');
+}
+
+function getBundledPetsDirectory(): string {
+  return getRuntimeResourcePath('pets');
+}
+
+function getPetDir(petId: string): string {
+  return path.join(getPetsDirectory(), petId);
+}
+
+function getPetGifPath(petId: string, anim: PetAnimation): string {
+  return path.join(getPetDir(petId), `${petId}-${anim}.gif`);
+}
+
+const BUILT_IN_PET_ID = 'yorha-sit-2b';
+
+const STATUS_TO_ANIMATION: Record<string, PetAnimation> = {
+  idle: 'idle',
+  recording: 'running',
+  processing: 'waiting',
+  done: 'review',
+  error: 'failed'
+};
+
+function statusToAnimation(status: string): PetAnimation {
+  return STATUS_TO_ANIMATION[status] ?? 'idle';
 }
 
 function getLocalAiDirectory(): string {
@@ -454,6 +489,18 @@ async function fileExists(filePath: string): Promise<boolean> {
   }
 }
 
+async function collectFiles(dir: string, result: string[]): Promise<void> {
+  const entries = await fs.readdir(dir, { withFileTypes: true });
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      await collectFiles(fullPath, result);
+    } else {
+      result.push(fullPath);
+    }
+  }
+}
+
 async function isLocalAiHealthy(): Promise<boolean> {
   try {
     const response = await fetch(`${LOCAL_AI_SERVER_URL}/health`, {
@@ -587,8 +634,8 @@ async function createMainWindow(): Promise<void> {
 async function createOverlayWindow(): Promise<void> {
   const display = screen.getPrimaryDisplay();
   const { x, y, width, height } = display.workArea;
-  const overlayWidth = 280;
-  const overlayHeight = 112;
+  const overlayWidth = 240;
+  const overlayHeight = 240;
   const rightInset = 22;
   const bottomInset = 22;
 
@@ -599,8 +646,7 @@ async function createOverlayWindow(): Promise<void> {
     y: y + height - overlayHeight - bottomInset,
     frame: false,
     transparent: true,
-    resizable: false,
-    movable: false,
+    resizable: true,
     show: false,
     skipTaskbar: true,
     hasShadow: false,
@@ -617,7 +663,6 @@ async function createOverlayWindow(): Promise<void> {
 
   overlayWindow.setAlwaysOnTop(true, 'screen-saver');
   overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  overlayWindow.setIgnoreMouseEvents(true, { forward: true });
 
   await overlayWindow.loadURL(getRendererUrl('#overlay'));
 }
@@ -625,6 +670,9 @@ async function createOverlayWindow(): Promise<void> {
 function broadcastOverlayState(): void {
   overlayWindow?.webContents.send('overlay:state', overlayState);
   mainWindow?.webContents.send('overlay:state', overlayState);
+  const anim = statusToAnimation(overlayState.status);
+  overlayWindow?.webContents.send('pet:animation', anim);
+  mainWindow?.webContents.send('pet:animation', anim);
 }
 
 function setOverlayState(state: OverlayState, hideAfterMs?: number): void {
@@ -1658,7 +1706,7 @@ async function processTranscript(
   return { entry, refinedText, pasted, notice: errorMessage ?? notice };
 }
 
-function handleHotkeySignal(signal: string): void {
+async function handleHotkeySignal(signal: string): Promise<void> {
   if (signal === 'START' && !hotkeyEngaged) {
     hotkeyEngaged = true;
     setOverlayState({
@@ -1736,6 +1784,8 @@ function registerIpcHandlers(): void {
       launchAtStartup: getLaunchAtStartupStatus()
     });
 
+    overlayWindow?.webContents.send('pet:selection-changed', persistedSettings.petSelection);
+
     return {
       ...persistedSettings,
       launchAtStartup: getLaunchAtStartupStatus()
@@ -1783,6 +1833,10 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('app:open-groq-api-keys', async () => {
     await shell.openExternal(GROQ_API_KEYS_URL);
+  });
+
+  ipcMain.handle('app:open-url', async (_event, url: string) => {
+    await shell.openExternal(url);
   });
 
   ipcMain.handle('local-ai:install-runtime', async () => {
@@ -1854,6 +1908,126 @@ function registerIpcHandlers(): void {
       1800
     );
   });
+
+  // Pet IPC handlers
+  ipcMain.handle('pet:list', async (): Promise<PetDefinition[]> => {
+    const petsDir = getPetsDirectory();
+    const builtInDir = getBundledPetsDirectory();
+    const pets: PetDefinition[] = [];
+
+    try {
+      const entries = await fs.readdir(petsDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          const dirPath = path.join(petsDir, entry.name);
+          const files = await fs.readdir(dirPath);
+          const hasGif = files.some((f) => f.endsWith('.gif'));
+          if (hasGif) {
+            pets.push({ id: entry.name, displayName: entry.name, builtIn: entry.name === BUILT_IN_PET_ID });
+          }
+        }
+      }
+    } catch {
+      // pets directory may not exist yet
+    }
+
+    // If built-in not in user dir, list it from bundled
+    if (!pets.some((p) => p.id === BUILT_IN_PET_ID)) {
+      try {
+        const builtInPetDir = path.join(builtInDir, BUILT_IN_PET_ID);
+        const builtInEntries = await fs.readdir(builtInPetDir);
+        const hasBuiltInGif = builtInEntries.some((f) => f.endsWith('.gif'));
+        if (hasBuiltInGif) {
+          pets.unshift({ id: BUILT_IN_PET_ID, displayName: 'YoRHa Sit 2B', builtIn: true });
+        }
+      } catch {
+        // bundled pet directory may not exist
+      }
+    }
+
+    return pets;
+  });
+
+  ipcMain.handle('pet:import-zip', async (): Promise<string | null> => {
+    const result = await dialog.showOpenDialog({
+      title: 'Import Pet from ZIP',
+      filters: [{ name: 'ZIP Files', extensions: ['zip'] }],
+      properties: ['openFile']
+    });
+
+    if (result.canceled || result.filePaths.length === 0) {
+      return null;
+    }
+
+    const zipPath = result.filePaths[0];
+    const tempDir = path.join(app.getPath('userData'), 'temp-pet-extract');
+    await ensureDirectory(tempDir);
+    await expandZipArchive(zipPath, tempDir);
+
+    // Auto-detect pet ID from common GIF filename prefix
+    const extractedFiles: string[] = [];
+    try {
+      await collectFiles(tempDir, extractedFiles);
+    } catch {
+      await fs.rm(tempDir, { recursive: true, force: true });
+      return null;
+    }
+
+    const gifFiles = extractedFiles.filter((f) => f.toLowerCase().endsWith('.gif'));
+    if (gifFiles.length === 0) {
+      await fs.rm(tempDir, { recursive: true, force: true });
+      return null;
+    }
+
+    // Find longest common prefix among filenames (without extension)
+    const baseNames = gifFiles.map((f) => path.basename(f, '.gif'));
+    const csv = baseNames.join(',');
+    // Find the longest common prefix that ends with '-'
+    let prefix = '';
+    for (let i = 0; i < csv.length; i++) {
+      const ch = csv[0]?.[i];
+      if (!ch || !baseNames.every((n) => n[i] === ch)) break;
+      prefix += ch;
+    }
+    // Trim trailing non-alphanumeric (keep hyphen)
+    let petId = prefix.replace(/[^a-zA-Z0-9_-]+$/, '').replace(/-+$/, '') || path.basename(zipPath, '.zip').replace(/[^a-zA-Z0-9_-]/g, '-');
+
+    // Ensure unique pet ID
+    let finalPetId = petId;
+    let counter = 1;
+    while (await fileExists(getPetDir(finalPetId))) {
+      finalPetId = `${petId}-${counter}`;
+      counter++;
+    }
+
+    const destDir = getPetDir(finalPetId);
+    await ensureDirectory(destDir);
+
+    for (const file of gifFiles) {
+      const fileName = path.basename(file);
+      const destFile = path.join(destDir, fileName);
+      await fs.copyFile(file, destFile);
+    }
+
+    await fs.rm(tempDir, { recursive: true, force: true });
+    return finalPetId;
+  });
+
+  ipcMain.handle('pet:remove', async (_event, petId: string) => {
+    if (petId === BUILT_IN_PET_ID) return;
+    const petDir = getPetDir(petId);
+    await fs.rm(petDir, { recursive: true, force: true });
+  });
+
+  ipcMain.handle('pet:get-gif-url', async (_event, petId: string, anim: PetAnimation): Promise<string> => {
+    return `pet://${petId}/${anim}.gif`;
+  });
+
+  ipcMain.handle('pet:set-bounds', async (_event, bounds: { x: number; y: number; width: number; height: number }) => {
+    if (overlayWindow) {
+      overlayWindow.setBounds(bounds);
+    }
+  });
 }
 
 async function bootstrap(): Promise<void> {
@@ -1875,6 +2049,39 @@ async function bootstrap(): Promise<void> {
     callback(permission === 'media');
   });
 
+  protocol.handle('pet', async (request) => {
+    // pet://{petId}/{animation}.gif → %APPDATA%/Openflow/pets/{petId}/{petId}-{animation}.gif
+    const urlPath = request.url.replace('pet://', '');
+    const parts = urlPath.split('/');
+    if (parts.length !== 2) {
+      return new Response(null, { status: 404 });
+    }
+    const [petId, animWithExt] = parts;
+    const anim = path.basename(animWithExt, '.gif') as PetAnimation;
+    let filePath = getPetGifPath(petId, anim);
+
+    // Try exact match first, then search directory for any .gif
+    if (!(await fileExists(filePath))) {
+      const petDir = getPetDir(petId);
+      try {
+        const files = await fs.readdir(petDir);
+        const match = files.find((f) => f.endsWith('.gif') && f.toLowerCase().includes(anim.toLowerCase()));
+        if (match) {
+          filePath = path.join(petDir, match);
+        } else {
+          return new Response(null, { status: 404 });
+        }
+      } catch {
+        return new Response(null, { status: 404 });
+      }
+    }
+
+    return net.fetch(pathToFileURL(filePath).toString());
+  });
+
+  // Copy bundled pet on first launch
+  await copyBundledPet();
+
   registerIpcHandlers();
   await createMainWindow();
   await createOverlayWindow();
@@ -1882,6 +2089,28 @@ async function bootstrap(): Promise<void> {
   await setupGlobalHotkey();
 
   app.on('activate', () => showMainWindow());
+}
+
+async function copyBundledPet(): Promise<void> {
+  const bundledDir = getBundledPetsDirectory();
+  const userPetsDir = getPetsDirectory();
+  const destDir = path.join(userPetsDir, BUILT_IN_PET_ID);
+
+  if (await fileExists(destDir)) return;
+
+  try {
+    const bundledPetDir = path.join(bundledDir, BUILT_IN_PET_ID);
+    const bundledGifs = await fs.readdir(bundledPetDir);
+    const gifFiles = bundledGifs.filter((f) => f.endsWith('.gif'));
+    if (gifFiles.length === 0) return;
+
+    await ensureDirectory(destDir);
+    for (const file of gifFiles) {
+      await fs.copyFile(path.join(bundledPetDir, file), path.join(destDir, file));
+    }
+  } catch {
+    // Bundled pet directory may not exist
+  }
 }
 
 app.whenReady().then(() => {

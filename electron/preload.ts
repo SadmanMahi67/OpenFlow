@@ -4,6 +4,8 @@ import type {
   AppSettings,
   BootstrapPayload,
   OverlayState,
+  PetAnimation,
+  PetDefinition,
   ProcessTranscriptRequest,
   ProcessTranscriptResponse
 } from '../src/shared/types';
@@ -22,6 +24,7 @@ const api = {
   removeOfflineModel: (modelId: string) =>
     ipcRenderer.invoke('offline-model:remove', modelId) as Promise<BootstrapPayload>,
   openGroqApiKeys: () => ipcRenderer.invoke('app:open-groq-api-keys') as Promise<void>,
+  openUrl: (url: string) => ipcRenderer.invoke('app:open-url', url) as Promise<void>,
   installLocalAiRuntime: () => ipcRenderer.invoke('local-ai:install-runtime') as Promise<BootstrapPayload>,
   installLocalAiModel: () => ipcRenderer.invoke('local-ai:install-model') as Promise<BootstrapPayload>,
   startLocalAi: () => ipcRenderer.invoke('local-ai:start') as Promise<BootstrapPayload>,
@@ -46,7 +49,24 @@ const api = {
       listener(state);
     ipcRenderer.on('overlay:state', wrappedListener);
     return () => ipcRenderer.removeListener('overlay:state', wrappedListener);
-  }
+  },
+  onPetAnimation: (listener: (anim: PetAnimation) => void) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, anim: PetAnimation) => listener(anim);
+    ipcRenderer.on('pet:animation', wrapped);
+    return () => ipcRenderer.removeListener('pet:animation', wrapped);
+  },
+  onPetSelectionChanged: (listener: (petId: string) => void) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, petId: string) => listener(petId);
+    ipcRenderer.on('pet:selection-changed', wrapped);
+    return () => ipcRenderer.removeListener('pet:selection-changed', wrapped);
+  },
+  setPetBounds: (bounds: { x: number; y: number; width: number; height: number }) =>
+    ipcRenderer.invoke('pet:set-bounds', bounds) as Promise<void>,
+  listAvailablePets: () => ipcRenderer.invoke('pet:list') as Promise<PetDefinition[]>,
+  importPetFromZip: () => ipcRenderer.invoke('pet:import-zip') as Promise<string | null>,
+  removePet: (petId: string) => ipcRenderer.invoke('pet:remove', petId) as Promise<void>,
+  getPetGifUrl: (petId: string, anim: PetAnimation) =>
+    ipcRenderer.invoke('pet:get-gif-url', petId, anim) as Promise<string>,
 };
 
 contextBridge.exposeInMainWorld('voskFlow', api);

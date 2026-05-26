@@ -20,7 +20,7 @@ Most users should download Openflow from the GitHub Releases page for this repos
 
 Download one of these release assets:
 
-- `Openflow Setup 0.1.0.exe` for the installer
+- `Openflow Setup 2.0.0.exe` for the installer
 
 After downloading:
 
@@ -40,11 +40,16 @@ After downloading:
 ## Features
 
 - Global hold-to-talk hotkey: `Ctrl + Win`
-- Floating click-through overlay for Recording / Processing / Done
+- Pixel pet companion overlay showing AI status through animated GIFs (idle, running, waiting, jumping, waving)
+- Import custom pets from ZIP files or browse pets at codex-pets.net
+- Configurable sound feedback — 7 synthesized capture start sounds and 7 paste done sounds, previewable in Settings
+- Animated shader background effects (Flowing Gradient, Aurora, Plasma) with preset color schemes and custom color picker
 - Offline CPU transcription with Whisper models through `whisper.cpp`
 - Downloadable Whisper model management inside the app
 - Optional Vulkan acceleration path when a Vulkan runtime is bundled in the build
+- Offline local AI refinement with llama.cpp (supports Llama 3.2 3B, Gemma 3 4B, Qwen 2.5 3B)
 - Refinement styles: Casual, Formal, Summarised, Bullet Points, Email Ready, None
+- Custom Prompt Filters — create and apply custom filters to fine-tune transcriptions
 - Configurable hosted Groq model ID in Settings
 - Local transcription history storing raw and refined text
 - Vocabulary list for names, brands, and domain terms
@@ -100,5 +105,5 @@ Artifacts are emitted into `release/`.
 - Openflow uses the selected acceleration mode. CPU falls back from the bundled `x64` runtime to the bundled `Win32` runtime if needed, and Auto can prefer a bundled Vulkan runtime when one is present.
 - The Vulkan runtime can be built from source with `npm run runtime:vulkan`. Openflow bundles it from `resources/whispercpp-vulkan/` when present.
 - Settings and history are stored locally inside Electron's `app.getPath("userData")` directory.
-- AI refinement requires a Groq API key. If the key is missing, Openflow falls back to raw transcription text.
-- The default hosted model is `llama-3.1-8b-instant`, but you can change the model ID in Settings.
+- AI refinement can use a hosted Groq model (default `llama-3.1-8b-instant`) or a local llama.cpp model for completely offline use. Configure the model ID in Settings.
+- Sound feedback is synthesized in real time using the Web Audio API — no audio files are bundled or downloaded.
