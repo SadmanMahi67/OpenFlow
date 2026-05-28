@@ -670,6 +670,9 @@ async function createOverlayWindow(): Promise<void> {
   overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
 
   await overlayWindow.loadURL(getRendererUrl('#overlay'));
+
+  // Retry alwaysOnTop after shell is fully ready (fixes startup-on-logon issue)
+  setTimeout(() => overlayWindow?.setAlwaysOnTop(true, 'screen-saver'), 3000);
 }
 
 function broadcastOverlayState(): void {
@@ -689,6 +692,7 @@ function setOverlayState(state: OverlayState, hideAfterMs?: number): void {
 
   if (state.visible) {
     overlayWindow?.showInactive();
+    overlayWindow?.setAlwaysOnTop(true, 'screen-saver');
   } else {
     overlayWindow?.hide();
   }
@@ -716,6 +720,46 @@ function normalizeText(text: string): string {
 
 function getRefinementFallbackNotice(reason: string): string {
   return `AI refinement was skipped, so Openflow used the raw transcript. ${reason}`;
+}
+
+function languagePrompt(language: string): string {
+  const prompts: Record<string, string> = {
+    bn: 'The transcript is in Bengali (Bangla). Fix whisper.cpp ASR errors: correct misspelled Bengali words and fix transliteration artifacts. Output clean Bengali text — do NOT convert to Latin script.',
+    hi: 'The transcript is in Hindi. Fix whisper.cpp ASR errors: correct misspelled Hindi words and fix transliteration artifacts. Output clean Devanagari text.',
+    mr: 'The transcript is in Marathi. Fix whisper.cpp ASR errors: correct misspelled Marathi words and fix transliteration artifacts. Output clean Devanagari text.',
+    gu: 'The transcript is in Gujarati. Fix whisper.cpp ASR errors: correct misspelled Gujarati words and fix transliteration artifacts. Output clean Gujarati script text.',
+    pa: 'The transcript is in Punjabi. Fix whisper.cpp ASR errors: correct misspelled Punjabi words and fix transliteration artifacts. Output clean Gurmukhi text.',
+    ta: 'The transcript is in Tamil. Fix whisper.cpp ASR errors: correct misspelled Tamil words and fix transliteration artifacts. Output clean Tamil script text.',
+    te: 'The transcript is in Telugu. Fix whisper.cpp ASR errors: correct misspelled Telugu words and fix transliteration artifacts. Output clean Telugu script text.',
+    kn: 'The transcript is in Kannada. Fix whisper.cpp ASR errors: correct misspelled Kannada words and fix transliteration artifacts. Output clean Kannada script text.',
+    ml: 'The transcript is in Malayalam. Fix whisper.cpp ASR errors: correct misspelled Malayalam words and fix transliteration artifacts. Output clean Malayalam script text.',
+    si: 'The transcript is in Sinhala. Fix whisper.cpp ASR errors: correct misspelled Sinhala words and fix transliteration artifacts. Output clean Sinhala script text.',
+    ne: 'The transcript is in Nepali. Fix whisper.cpp ASR errors: correct misspelled Nepali words and fix transliteration artifacts. Output clean Devanagari text.',
+    ja: 'The transcript is in Japanese. Fix whisper.cpp ASR errors: correct misspelled Japanese words. Output clean Japanese text using proper kanji, hiragana, and katakana.',
+    zh: 'The transcript is in Chinese. Fix whisper.cpp ASR errors: correct misspelled Chinese words. Output clean Chinese text using proper hanzi characters.',
+    ko: 'The transcript is in Korean. Fix whisper.cpp ASR errors: correct misspelled Korean words. Output clean Korean text using proper hangul.',
+    ar: 'The transcript is in Arabic. Fix whisper.cpp ASR errors: correct misspelled Arabic words and fix transliteration artifacts. Output clean Arabic script text.',
+    fa: 'The transcript is in Persian. Fix whisper.cpp ASR errors: correct misspelled Persian words and fix transliteration artifacts. Output clean Persian script text.',
+    ur: 'The transcript is in Urdu. Fix whisper.cpp ASR errors: correct misspelled Urdu words and fix transliteration artifacts. Output clean Urdu script text.',
+    ru: 'The transcript is in Russian. Fix whisper.cpp ASR errors: correct misspelled Russian words and fix transliteration artifacts. Output clean Cyrillic text.',
+    uk: 'The transcript is in Ukrainian. Fix whisper.cpp ASR errors: correct misspelled Ukrainian words and fix transliteration artifacts. Output clean Cyrillic text.',
+    bg: 'The transcript is in Bulgarian. Fix whisper.cpp ASR errors: correct misspelled Bulgarian words and fix transliteration artifacts. Output clean Cyrillic text.',
+    sr: 'The transcript is in Serbian. Fix whisper.cpp ASR errors: correct misspelled Serbian words and fix transliteration artifacts. Output clean Cyrillic text.',
+    th: 'The transcript is in Thai. Fix whisper.cpp ASR errors: correct misspelled Thai words and fix transliteration artifacts. Output clean Thai script text.',
+    el: 'The transcript is in Greek. Fix whisper.cpp ASR errors: correct misspelled Greek words and fix transliteration artifacts. Output clean Greek script text.',
+    he: 'The transcript is in Hebrew. Fix whisper.cpp ASR errors: correct misspelled Hebrew words and fix transliteration artifacts. Output clean Hebrew script text.',
+    am: 'The transcript is in Amharic. Fix whisper.cpp ASR errors: correct misspelled Amharic words and fix transliteration artifacts. Output clean Geʽez script text.',
+    my: 'The transcript is in Burmese. Fix whisper.cpp ASR errors: correct misspelled Burmese words and fix transliteration artifacts. Output clean Myanmar script text.',
+    km: 'The transcript is in Khmer. Fix whisper.cpp ASR errors: correct misspelled Khmer words and fix transliteration artifacts. Output clean Khmer script text.',
+    lo: 'The transcript is in Lao. Fix whisper.cpp ASR errors: correct misspelled Lao words and fix transliteration artifacts. Output clean Lao script text.',
+    ka: 'The transcript is in Georgian. Fix whisper.cpp ASR errors: correct misspelled Georgian words and fix transliteration artifacts. Output clean Georgian script text.',
+    hy: 'The transcript is in Armenian. Fix whisper.cpp ASR errors: correct misspelled Armenian words and fix transliteration artifacts. Output clean Armenian script text.',
+    bo: 'The transcript is in Tibetan. Fix whisper.cpp ASR errors: correct misspelled Tibetan words and fix transliteration artifacts. Output clean Tibetan script text.',
+    ps: 'The transcript is in Pashto. Fix whisper.cpp ASR errors: correct misspelled Pashto words and fix transliteration artifacts. Output clean Arabic script text.',
+    kk: 'The transcript is in Kazakh. Fix whisper.cpp ASR errors: correct misspelled Kazakh words and fix transliteration artifacts. Output clean text using the appropriate script.',
+    or: 'The transcript is in Odia. Fix whisper.cpp ASR errors: correct misspelled Odia words and fix transliteration artifacts. Output clean Odia script text.',
+  };
+  return prompts[language] || '';
 }
 
 async function delay(ms: number): Promise<void> {
@@ -1182,7 +1226,8 @@ async function runWhisperCli(
   audioPath: string,
   outputBasePath: string,
   vadModelPath: string,
-  useVad: boolean
+  useVad: boolean,
+  language: string
 ): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const args = [
@@ -1192,7 +1237,7 @@ async function runWhisperCli(
       '--threads',
       String(getDefaultWhisperThreadCount()),
       '--language',
-      'en',
+      language,
       '--model',
       modelPath,
       '--output-txt',
@@ -1238,9 +1283,34 @@ async function runWhisperCli(
   });
 }
 
+async function detectKeyboardLanguage(): Promise<string> {
+  try {
+    return await new Promise<string>((resolve, reject) => {
+      const child = spawn(
+        getPowerShellPath(),
+        [
+          '-NoProfile', '-NonInteractive', '-Command',
+          'Add-Type -AssemblyName System.Windows.Forms; Write-Output ([System.Windows.Forms.InputLanguage]::CurrentInputLanguage.Culture.TwoLetterISOLanguageName)'
+        ],
+        { windowsHide: true }
+      );
+      let out = '';
+      child.stdout.on('data', (chunk: Buffer) => { out += chunk.toString(); });
+      child.once('error', reject);
+      child.once('exit', (code) => {
+        if (code === 0) resolve(out.trim().toLowerCase() || 'en');
+        else reject(new Error(`Exit code ${code}`));
+      });
+    });
+  } catch {
+    return 'en';
+  }
+}
+
 async function transcribeWithWhisper(
   audioBuffer: ArrayBuffer,
-  settings: AppSettings
+  settings: AppSettings,
+  whisperLanguage: string
 ): Promise<{ rawText: string; notice?: string }> {
   const modelInfo = await buildModelInfo(settings);
   const runtimePlan = await resolveWhisperRuntimePlan(settings);
@@ -1270,6 +1340,12 @@ async function transcribeWithWhisper(
 
   const { captureDirectory, audioPath, outputBasePath } = await writeTemporaryCapture(audioBuffer);
 
+  if (whisperLanguage !== 'en') {
+    transcriptionNotice = transcriptionNotice
+      ? `${transcriptionNotice} | Keyboard language detected: ${whisperLanguage}`
+      : `Keyboard language detected: ${whisperLanguage}`;
+  }
+
   try {
     const useVadPasses = vadModelExists ? [true, false] : [false];
     let transcribed = false;
@@ -1285,7 +1361,8 @@ async function transcribeWithWhisper(
             audioPath,
             outputBasePath,
             vadModelPath,
-            useVad
+            useVad,
+            whisperLanguage
           );
           successfulRuntime = runtimeCandidate;
           transcribed = true;
@@ -1335,7 +1412,8 @@ async function transcribeWithWhisper(
 async function refineWithGroq(
   rawText: string,
   style: RefinementStyle,
-  settings: AppSettings
+  settings: AppSettings,
+  whisperLanguage: string
 ): Promise<{ refinedText: string; notice?: string }> {
   const promptFilter = resolvePromptFilter(settings, style);
 
@@ -1356,6 +1434,20 @@ async function refineWithGroq(
       ? settings.vocabulary.map((item) => `- ${item}`).join('\n')
       : '- No custom vocabulary provided';
   const requestUrl = 'https://api.groq.com/openai/v1/chat/completions';
+  const langHint = languagePrompt(whisperLanguage);
+  const systemLines = [
+    'You are a dictation cleanup assistant.',
+    ...(langHint ? [langHint] : []),
+    'Preserve the speaker meaning and do not invent facts.',
+    'Preserve the original language of the transcript.',
+    'Return only the final cleaned text with no heading, no intro, no label, no explanation, and no quotation marks unless the transcript requires them.',
+    'Custom vocabulary entries are canonical spellings for names, brands, product terms, and technical words.',
+    'If a word or phrase in the raw transcript is a likely ASR misspelling, phonetic match, or near-match for a provided vocabulary entry, replace it with that exact vocabulary spelling.',
+    'Preserve the exact spelling, casing, spacing, and punctuation of matched vocabulary entries.',
+    'Prefer provided vocabulary over plausible alternatives when the sound or context is close.',
+    'Never append, list, explain, mention, or force any vocabulary item unless the raw transcript already implies that word or phrase.',
+    'Do not add extra sentences, tags, commentary, notes, sign-offs, preambles, or labels such as "Refined text:" or "Summary:".'
+  ];
   const requestBody = JSON.stringify({
     model: modelId,
     temperature: 0,
@@ -1363,17 +1455,7 @@ async function refineWithGroq(
     messages: [
       {
         role: 'system',
-        content: [
-          'You are a dictation cleanup assistant.',
-          'Preserve the speaker meaning and do not invent facts.',
-          'Return only the final cleaned text with no heading, no intro, no label, no explanation, and no quotation marks unless the transcript requires them.',
-          'Custom vocabulary entries are canonical spellings for names, brands, product terms, and technical words.',
-          'If a word or phrase in the raw transcript is a likely ASR misspelling, phonetic match, or near-match for a provided vocabulary entry, replace it with that exact vocabulary spelling.',
-          'Preserve the exact spelling, casing, spacing, and punctuation of matched vocabulary entries.',
-          'Prefer provided vocabulary over plausible alternatives when the sound or context is close.',
-          'Never append, list, explain, mention, or force any vocabulary item unless the raw transcript already implies that word or phrase.',
-          'Do not add extra sentences, tags, commentary, notes, sign-offs, preambles, or labels such as "Refined text:" or "Summary:".'
-        ].join(' ')
+        content: systemLines.join(' ')
       },
       {
         role: 'user',
@@ -1473,7 +1555,8 @@ async function refineWithGroq(
 async function refineWithLocalAi(
   rawText: string,
   style: RefinementStyle,
-  settings: AppSettings
+  settings: AppSettings,
+  whisperLanguage: string
 ): Promise<{ refinedText: string; notice?: string }> {
   const promptFilter = resolvePromptFilter(settings, style);
 
@@ -1487,6 +1570,20 @@ async function refineWithLocalAi(
     settings.vocabulary.length > 0
       ? settings.vocabulary.map((item) => `- ${item}`).join('\n')
       : '- No custom vocabulary provided';
+  const langHint = languagePrompt(whisperLanguage);
+  const systemLines = [
+    'You are a dictation cleanup assistant.',
+    ...(langHint ? [langHint] : []),
+    'Preserve the speaker meaning and do not invent facts.',
+    'Preserve the original language of the transcript.',
+    'Return only the final cleaned text with no heading, no intro, no label, no explanation, and no quotation marks unless the transcript requires them.',
+    'Custom vocabulary entries are canonical spellings for names, brands, product terms, and technical words.',
+    'If a word or phrase in the raw transcript is a likely ASR misspelling, phonetic match, or near-match for a provided vocabulary entry, replace it with that exact vocabulary spelling.',
+    'Preserve the exact spelling, casing, spacing, and punctuation of matched vocabulary entries.',
+    'Prefer provided vocabulary over plausible alternatives when the sound or context is close.',
+    'Never append, list, explain, mention, or force any vocabulary item unless the raw transcript already implies that word or phrase.',
+    'Do not add extra sentences, tags, commentary, notes, sign-offs, preambles, or labels such as "Refined text:" or "Summary:".'
+  ];
   const requestBody = JSON.stringify({
     model: settings.localRefinementModel.trim() || LOCAL_REFINEMENT_MODEL,
     temperature: 0,
@@ -1495,17 +1592,7 @@ async function refineWithLocalAi(
     messages: [
       {
         role: 'system',
-        content: [
-          'You are a dictation cleanup assistant.',
-          'Preserve the speaker meaning and do not invent facts.',
-          'Return only the final cleaned text with no heading, no intro, no label, no explanation, and no quotation marks unless the transcript requires them.',
-          'Custom vocabulary entries are canonical spellings for names, brands, product terms, and technical words.',
-          'If a word or phrase in the raw transcript is a likely ASR misspelling, phonetic match, or near-match for a provided vocabulary entry, replace it with that exact vocabulary spelling.',
-          'Preserve the exact spelling, casing, spacing, and punctuation of matched vocabulary entries.',
-          'Prefer provided vocabulary over plausible alternatives when the sound or context is close.',
-          'Never append, list, explain, mention, or force any vocabulary item unless the raw transcript already implies that word or phrase.',
-          'Do not add extra sentences, tags, commentary, notes, sign-offs, preambles, or labels such as "Refined text:" or "Summary:".'
-        ].join(' ')
+        content: systemLines.join(' ')
       },
       {
         role: 'user',
@@ -1561,20 +1648,21 @@ async function refineWithLocalAi(
 async function refineWithSelectedMode(
   rawText: string,
   style: RefinementStyle,
-  settings: AppSettings
+  settings: AppSettings,
+  whisperLanguage: string
 ): Promise<{ refinedText: string; notice?: string }> {
   if (settings.refinementMode !== 'local') {
-    return refineWithGroq(rawText, style, settings);
+    return refineWithGroq(rawText, style, settings, whisperLanguage);
   }
 
   try {
-    return await refineWithLocalAi(rawText, style, settings);
+    return await refineWithLocalAi(rawText, style, settings, whisperLanguage);
   } catch (error) {
     const localFailureReason =
       error instanceof Error ? error.message : 'The local AI refinement failed.';
 
     if (settings.groqApiKey.trim()) {
-      const groqResult = await refineWithGroq(rawText, style, settings);
+      const groqResult = await refineWithGroq(rawText, style, settings, whisperLanguage);
       return {
         ...groqResult,
         notice:
@@ -1591,15 +1679,32 @@ async function refineWithSelectedMode(
 }
 
 async function sendPasteShortcut(): Promise<void> {
+  // Uses keybd_event with raw virtual key codes (0x56 = V, 0x11 = Ctrl)
+  // This is layout-independent — works with any keyboard layout (Cyrillic, Arabic, etc.)
+  // Uses -EncodedCommand to avoid here-string parsing issues across spawn() args
+  const psCommand = [
+    'Add-Type -TypeDefinition @"',
+    'using System;',
+    'using System.Runtime.InteropServices;',
+    'public class Keyboard {',
+    '    [DllImport("user32.dll")]',
+    '    public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);',
+    '    public static void SendCtrlV() {',
+    '        keybd_event(0x11, 0, 0, UIntPtr.Zero);',
+    '        keybd_event(0x56, 0, 0, UIntPtr.Zero);',
+    '        keybd_event(0x56, 0, 2, UIntPtr.Zero);',
+    '        keybd_event(0x11, 0, 2, UIntPtr.Zero);',
+    '    }',
+    '}',
+    '"@; [Keyboard]::SendCtrlV()'
+  ].join('\n');
+
+  const encoded = Buffer.from(psCommand, 'utf16le').toString('base64');
+
   await new Promise<void>((resolve, reject) => {
     const child = spawn(
       getPowerShellPath(),
-      [
-        '-NoProfile',
-        '-NonInteractive',
-        '-Command',
-        "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('^v')"
-      ],
+      ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded],
       { windowsHide: true }
     );
 
@@ -1625,7 +1730,8 @@ async function processTranscript(
   payload: ProcessTranscriptRequest
 ): Promise<ProcessTranscriptResponse> {
   const settings = await loadSettings();
-  const transcriptionResult = await transcribeWithWhisper(payload.audioBuffer, settings);
+  const whisperLanguage = await detectKeyboardLanguage();
+  const transcriptionResult = await transcribeWithWhisper(payload.audioBuffer, settings, whisperLanguage);
   const normalizedRawText = normalizeText(transcriptionResult.rawText);
 
   if (!normalizedRawText) {
@@ -1662,7 +1768,7 @@ async function processTranscript(
   let errorMessage: string | undefined;
 
   try {
-    const refinementResult = await refineWithSelectedMode(normalizedRawText, payload.style, settings);
+    const refinementResult = await refineWithSelectedMode(normalizedRawText, payload.style, settings, whisperLanguage);
     refinedText = refinementResult.refinedText;
     notice = [transcriptionResult.notice, refinementResult.notice].filter(Boolean).join(' ') || undefined;
 

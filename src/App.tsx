@@ -15,6 +15,7 @@ import {
   OFFLINE_MODEL_OPTIONS,
   PASTE_SOUND_OPTIONS,
   REFINEMENT_MODE_OPTIONS,
+  WHISPER_SUPPORTED_LANGUAGES,
   type AppSettings,
   type BootstrapPayload,
   type CaptureSoundId,
@@ -1277,6 +1278,25 @@ export function App(): JSX.Element {
                     ))}
                   </div>
                 </article>
+
+                <details className="language-list-details">
+                  <summary className="language-list-summary">
+                    <span>Transcription languages ({WHISPER_SUPPORTED_LANGUAGES.length})</span>
+                    <svg className="language-list-arrow" width="12" height="12" viewBox="0 0 24 24">
+                      <path d="M6 9l6 6 6-6" />
+                    </svg>
+                  </summary>
+                  <div className="language-list-grid">
+                    {WHISPER_SUPPORTED_LANGUAGES.map((lang) => (
+                      <span key={lang.code} className="language-list-item" title={lang.code}>{lang.name}</span>
+                    ))}
+                  </div>
+                  <p className="settings-description" style={{ marginTop: '12px' }}>
+                    Small and Medium models support English only.
+                    Multilingual models (Large Turbo, Large Turbo Q5_0) support all languages listed above.
+                    The active keyboard layout is detected automatically at capture time.
+                  </p>
+                </details>
               </div>
             </section>
           ) : null}

@@ -1,6 +1,6 @@
 {
   "name": "openflow",
-  "version": "2.0.0",
+  "version": "2.1.0-beta",
   "private": true,
   "description": "Windows desktop voice transcription tool with offline Whisper transcription and optional AI cleanup.",
   "license": "MIT",

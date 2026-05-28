@@ -838,6 +838,55 @@ svg { display: block; }
   gap: 8px;
 }
 
+/* ── Language List ── */
+.language-list-details {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  padding: 12px 16px;
+  cursor: pointer;
+}
+
+.language-list-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted-foreground);
+  user-select: none;
+}
+
+.language-list-arrow {
+  transition: transform 0.2s;
+  fill: var(--muted-foreground);
+}
+
+.language-list-details[open] .language-list-arrow {
+  transform: rotate(180deg);
+}
+
+.language-list-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: 4px;
+  margin-top: 12px;
+  cursor: default;
+}
+
+.language-list-item {
+  font-size: 11px;
+  color: var(--muted-foreground);
+  padding: 3px 6px;
+  border-radius: var(--radius-sm);
+  background: rgba(255,255,255,0.03);
+}
+
+.language-list-item:hover {
+  background: rgba(255,255,255,0.08);
+  color: var(--foreground);
+}
+
 /* ── Sound Settings ── */
 .sound-row {
   display: flex;
